@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "rpof-local",
+      "credentials": [
+        {
+          "accessKey": "rpof-local",
+          "secretKey": "rpof-local-secret"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

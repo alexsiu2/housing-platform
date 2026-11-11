@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest==9.2.0
+moto[s3]==5.2.5
+black==26.10.1
+flake8==7.5.0
+pre-commit==4.7.0

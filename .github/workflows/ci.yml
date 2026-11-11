@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Lint, test, dbt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Black
+        run: black --check .
+
+      - name: Flake8
+        run: flake8 .
+
+      - name: Unit tests
+        run: pytest tests/ -v
+
+      - name: dbt build (DuckDB)
+        run: |
+          mkdir -p data
+          cd dbt && dbt build --profiles-dir .
+
+  compose:
+    name: Validate docker compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: docker compose config
+        run: docker compose -f docker/compose.yaml --profile core config -q

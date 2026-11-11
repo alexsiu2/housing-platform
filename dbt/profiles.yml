@@ -1,0 +1,12 @@
+# Local dbt profile. No secrets live here: everything comes from env vars.
+# Run from the repo root with:  make dbt-build
+housing_platform:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '../data/rpof.duckdb') }}"
+      threads: 4
+    # Phase 1 adds the httpfs + delta extensions and S3 settings so dbt can
+    # read Bronze Delta tables from object storage.
+    # Phase 8 adds a `bigquery` output for the cloud deployment.

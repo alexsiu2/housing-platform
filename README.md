@@ -1,1 +1,54 @@
-# housing-platform
+# Rental Property Opportunity Finder
+
+A local-first data platform that ranks US zip codes for rental property investment using only free, open data. Batch sources (Zillow, FRED, Census, BLS, HUD, HMDA) and streaming sources (news, Reddit, GDELT) flow through a Bronze → Silver → Gold lakehouse, producing an explainable opportunity score and a weekly AI-summarized market outlook.
+
+See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportunity_finder_design_doc.md).
+
+## Status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Repo cleanup, Docker stack, storage + Bronze loader, CI | ✅ |
+| 1 | FRED end-to-end (Bronze → Silver, Airflow DAG) | In progress — client + tests done |
+| 2–4 | Zillow, Census/BLS, scoring, dashboard (MVP) | Planned |
+| 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
+
+## Stack (current)
+
+Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`) · dbt + DuckDB · Docker Compose · GitHub Actions
+
+## Quickstart
+
+Requirements: Docker with ~4 GB RAM free, Python 3.11.
+
+```bash
+cp .env.example .env          # then add your FRED_API_KEY
+make setup                    # Python dev deps + pre-commit hooks
+make up                       # SeaweedFS + Postgres + Airflow
+```
+
+- Airflow UI: http://localhost:8080 (user/password `airflow` / `airflow` by default)
+- Object storage (S3 API): http://localhost:8333 — buckets `rpof-raw` and `rpof-lake` are created on startup
+
+Trigger the **`platform_smoke_test`** DAG to confirm Airflow can write to object storage and to a Delta table.
+
+## Common commands
+
+```bash
+make test        # unit tests
+make lint        # black --check + flake8
+make dbt-build   # dbt models + tests against data/rpof.duckdb
+make logs        # tail the stack logs
+make down        # stop the stack (data volumes are kept)
+make help        # list all targets
+```
+
+## Layout
+
+```
+ingestion/   API/CSV clients, object storage helpers, Delta Bronze loader
+dags/        Airflow DAGs
+dbt/         staging / silver / gold models
+docker/      compose.yaml (profiles per phase), Airflow image, SeaweedFS config
+tests/       pytest unit tests
+```

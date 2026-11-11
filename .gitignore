@@ -1,9 +1,18 @@
+# Secrets
 .env
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Local data and logs (DuckDB files, Airflow/dbt logs)
 data/
 logs/
-.env
-**/__pycache__/
-**/*.pyc
+
+# dbt artifacts
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
