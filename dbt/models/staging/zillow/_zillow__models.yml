@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: stg_zillow__zori
+    description: Typed Zillow ZORI rows from Bronze. Grain is (zip, month).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, month]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: month
+        data_tests: [not_null]
+      - name: rent_index
+        data_tests: [not_null]
+
+  - name: stg_zillow__zhvi
+    description: Typed Zillow ZHVI rows from Bronze. Grain is (zip, month).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, month]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: month
+        data_tests: [not_null]
+      - name: home_value
+        data_tests: [not_null]

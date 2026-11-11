@@ -352,7 +352,7 @@ Any v2 change ships as a new `weights_version` with a before/after comparison of
 | DAG | Schedule | Tasks |
 |---|---|---|
 | `ingest_fred` | Weekly (Mon) | fetch → land raw JSON → GE validate → merge to Bronze |
-| `ingest_zillow` | Monthly (day 10) | download ZORI/ZHVI → land → melt → GE → merge |
+| `ingest_zillow` | Monthly (day 20; Zillow refreshes mid-month) | download ZORI/ZHVI → land → melt → GE → merge |
 | `ingest_census_acs` | Annual (Jan) + manual | fetch variables by ZCTA → land → GE → merge |
 | `ingest_bls_ces` | Monthly | fetch metro series → land → GE → merge |
 | `ingest_hud_crosswalk` | Quarterly | download → land → merge |
@@ -602,11 +602,11 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 - [ ] **Done when:** weekly DAG runs green and Silver updates automatically
 
 ### Phase 2 — Zillow + HUD Crosswalk
-- [ ] `ingestion/zillow_client.py` (download + melt) with fixture-CSV tests
-- [ ] Bronze `zori_raw`, `zhvi_raw`; full historical backfill
-- [ ] HUD ZIP→CBSA and TRACT→ZIP crosswalks
-- [ ] dbt `silver_rent_index`, `silver_home_values` (+ range tests)
-- [ ] `dags/ingest_zillow.py`
+- [x] `ingestion/zillow_client.py` (download + melt) with fixture-CSV tests
+- [x] Bronze `zori_raw`, `zhvi_raw`; full historical backfill
+- [ ] HUD ZIP→CBSA and TRACT→ZIP crosswalks (code + tests done; real load pending token)
+- [x] dbt `silver_rent_index`, `silver_home_values` (+ range tests)
+- [x] `dags/ingest_zillow.py` (+ `dags/ingest_hud_crosswalk.py`)
 - [ ] **Done when:** you can query rent + home value history for any covered zip
 
 ### Phase 3 — Census + BLS + Gold + Scoring

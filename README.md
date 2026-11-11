@@ -10,7 +10,8 @@ See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportun
 |---|---|---|
 | 0 | Repo cleanup, Docker stack, storage + Bronze loader, CI | ✅ |
 | 1 | FRED end-to-end (Bronze → Silver, Airflow DAG) | ✅ |
-| 2–4 | Zillow, Census/BLS, scoring, dashboard (MVP) | Planned |
+| 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | In progress: Zillow live, HUD awaiting real-data check |
+| 3–4 | Census/BLS, scoring, dashboard (MVP) | Planned |
 | 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
 
 ## Stack (current)
@@ -48,6 +49,20 @@ make run-dag DAG=ingest_fred          # one weekly run end-to-end; triggers dbt_
 ```
 
 Scheduled runs re-fetch the last 2 years because FRED revises recent values; the MERGE on `(series_id, date)` keeps re-runs idempotent.
+
+## Zillow + HUD (Phase 2)
+
+| DAG | Schedule | What it loads |
+|---|---|---|
+| `ingest_zillow` | Monthly, 20th | ZORI rents + ZHVI home values by zip → `bronze.zori_raw`, `bronze.zhvi_raw` (re-merges the last 24 months) |
+| `ingest_hud_crosswalk` | Quarterly | HUD zip→CBSA and tract→zip crosswalks → `bronze.hud_crosswalk_raw` (needs `HUD_API_TOKEN`) |
+
+Silver: `silver_rent_index`, `silver_home_values` (zip × month, 1-year growth, primary CBSA), `silver_zip_cbsa_xwalk`, `silver_tract_zip_xwalk`.
+
+```bash
+make backfill-zillow                  # full ZORI (2015+) + ZHVI (2000+) history
+make load-hud                         # latest HUD crosswalk vintage
+```
 
 ## Common commands
 

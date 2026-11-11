@@ -21,6 +21,16 @@ def _quote(column: str) -> str:
     return f"`{column}`"
 
 
+def _decode_dictionaries(table: pa.Table) -> pa.Table:
+    """Cast dictionary-encoded columns (pandas categoricals) to their values."""
+    for i, field in enumerate(table.schema):
+        if pa.types.is_dictionary(field.type):
+            table = table.set_column(
+                i, field.name, table.column(i).cast(field.type.value_type)
+            )
+    return table
+
+
 def merge_to_delta(
     df: pd.DataFrame,
     table_uri: str,
@@ -28,6 +38,7 @@ def merge_to_delta(
     storage_options: dict[str, str] | None = None,
     partition_by: list[str] | None = None,
     run_id: str | None = None,
+    target_filter: str | None = None,
 ) -> dict:
     """
     Upsert a DataFrame into a Delta table on the given key columns.
@@ -35,6 +46,10 @@ def merge_to_delta(
     - Creates the table on first write.
     - Adds a `run_id` column (one per call) so every row is traceable to a load.
     - If the input has duplicate keys, the last occurrence wins.
+    - `target_filter` (SQL on the target alias `t`, e.g. "t.year >= 2024")
+      limits which existing rows the MERGE scans. Only use it when every
+      source row satisfies it, or matching rows outside it would be duplicated.
+    - Categorical (dictionary) columns are written as plain strings.
 
     Returns a dict of load metrics: rows_in, rows_inserted, rows_updated,
     run_id, created_table.
@@ -50,7 +65,7 @@ def merge_to_delta(
     run_id = run_id or uuid.uuid4().hex
     df = df.drop_duplicates(subset=keys, keep="last").copy()
     df["run_id"] = run_id
-    data = pa.Table.from_pandas(df, preserve_index=False)
+    data = _decode_dictionaries(pa.Table.from_pandas(df, preserve_index=False))
 
     started = datetime.now(timezone.utc)
 
@@ -70,6 +85,8 @@ def merge_to_delta(
         }
     else:
         predicate = " AND ".join(f"t.{_quote(k)} = s.{_quote(k)}" for k in keys)
+        if target_filter:
+            predicate = f"({predicate}) AND ({target_filter})"
         result = (
             DeltaTable(table_uri, storage_options=storage_options)
             .merge(

@@ -39,7 +39,7 @@ jobs:
           LAKE_ROOT: ${{ github.workspace }}/.ci_lake
         run: |
           mkdir -p data
-          python scripts/make_fred_fixture.py --lake-root "$LAKE_ROOT"
+          python scripts/make_lake_fixture.py --lake-root "$LAKE_ROOT"
           cd dbt && dbt build --profiles-dir .
 
   compose:
@@ -67,7 +67,7 @@ jobs:
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))
-          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build'}
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk'}
           sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
           "
 

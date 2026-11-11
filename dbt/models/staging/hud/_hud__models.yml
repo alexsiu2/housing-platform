@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: stg_hud__crosswalk
+    description: Typed HUD USPS crosswalk rows from Bronze, every vintage.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [crosswalk_type, vintage, zip, geoid]}
+    columns:
+      - name: crosswalk_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [zip-cbsa, tract-zip]
+      - name: res_ratio
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
