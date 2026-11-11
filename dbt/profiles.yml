@@ -7,6 +7,8 @@ housing_platform:
       type: duckdb
       path: "{{ env_var('DUCKDB_PATH', '../data/rpof.duckdb') }}"
       threads: 4
-    # Phase 1 adds the httpfs + delta extensions and S3 settings so dbt can
-    # read Bronze Delta tables from object storage.
+      # Bronze Delta tables are read through the `deltalake` Python library
+      # (see models/staging/*/_sources.yml), so no DuckDB extensions are needed.
+      plugins:
+        - module: delta
     # Phase 8 adds a `bigquery` output for the cloud deployment.

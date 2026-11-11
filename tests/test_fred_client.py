@@ -213,7 +213,7 @@ class TestFetchAllSeries:
 
         df = fetch_all_series("2020-01-01", "2020-12-31")
 
-        # 5 series × 3 rows each = 15 total rows
+        # one 3-row DataFrame per series
         assert len(df) == len(FRED_SERIES) * 3
         assert set(df["series_id"].unique()) == set(FRED_SERIES.keys())
 
@@ -246,8 +246,8 @@ class TestFetchAllSeries:
 
         df = fetch_all_series("2020-01-01", "2020-12-31")
 
-        # 4 series succeeded, 1 failed — we get 4 rows
-        assert len(df) == 4
+        # all but one series succeeded (1 row each)
+        assert len(df) == len(FRED_SERIES) - 1
         assert series_ids[1] not in df["series_id"].values
 
     @patch("ingestion.fred_client.fetch_series")
@@ -262,3 +262,87 @@ class TestFetchAllSeries:
 
         with pytest.raises(RuntimeError, match="Failed to fetch any FRED series"):
             fetch_all_series("2020-01-01", "2020-12-31")
+
+
+# ── retry / error-handling tests ───────────────────────────────────────────────
+
+
+class TestRetries:
+
+    @patch("ingestion.fred_client.requests.get")
+    @patch.dict("os.environ", {"FRED_API_KEY": "fake-key-123"})
+    def test_retries_on_503_then_succeeds(self, mock_get):
+        from ingestion.fred_client import fetch_series
+
+        mock_get.side_effect = [
+            make_mock_response({}, status_code=503),
+            make_mock_response(FAKE_FRED_RESPONSE),
+        ]
+
+        df = fetch_series("MORTGAGE30US", "2020-01-01", "2020-01-31")
+
+        assert len(df) == 3
+        assert mock_get.call_count == 2
+
+    @patch("ingestion.fred_client.requests.get")
+    @patch.dict("os.environ", {"FRED_API_KEY": "fake-key-123"})
+    def test_retries_on_timeout_then_gives_up(self, mock_get):
+        import requests
+        from ingestion.fred_client import MAX_ATTEMPTS, fetch_series
+
+        mock_get.side_effect = requests.Timeout("slow")
+
+        with pytest.raises(requests.ConnectionError):
+            fetch_series("MORTGAGE30US", "2020-01-01", "2020-01-31")
+        assert mock_get.call_count == MAX_ATTEMPTS
+
+    @patch("ingestion.fred_client.requests.get")
+    @patch.dict("os.environ", {"FRED_API_KEY": "fake-key-123"})
+    def test_does_not_retry_on_400(self, mock_get):
+        from ingestion.fred_client import fetch_series
+
+        mock_response = make_mock_response({}, status_code=400)
+        mock_response.raise_for_status.side_effect = HTTPError("400")
+        mock_get.return_value = mock_response
+
+        with pytest.raises(HTTPError):
+            fetch_series("MORTGAGE30US", "2020-01-01", "2020-01-31")
+        assert mock_get.call_count == 1
+
+    @patch("ingestion.fred_client.requests.get")
+    @patch.dict("os.environ", {"FRED_API_KEY": "super-secret-key"})
+    def test_error_message_never_contains_api_key(self, mock_get):
+        """FRED puts the key in the URL, so errors must not echo the URL."""
+        from ingestion.fred_client import fetch_series
+
+        mock_response = make_mock_response({}, status_code=400)
+        mock_response.raise_for_status.side_effect = HTTPError(
+            "400 for url: https://api.stlouisfed.org/...&api_key=super-secret-key"
+        )
+        mock_get.return_value = mock_response
+
+        with pytest.raises(HTTPError) as exc:
+            fetch_series("MORTGAGE30US", "2020-01-01", "2020-01-31")
+        assert "super-secret-key" not in str(exc.value)
+
+    @patch("ingestion.fred_client.requests.get")
+    @patch.dict("os.environ", {"FRED_API_KEY": "fake-key-123"})
+    def test_sets_request_timeout(self, mock_get):
+        from ingestion.fred_client import fetch_series
+
+        mock_get.return_value = make_mock_response(FAKE_FRED_RESPONSE)
+        fetch_series("MORTGAGE30US", "2020-01-01", "2020-01-31")
+
+        assert mock_get.call_args.kwargs["timeout"] > 0
+
+
+def test_parse_observations_uses_given_ingested_at():
+    from datetime import datetime, timezone
+
+    from ingestion.fred_client import parse_observations
+
+    ts = datetime(2024, 5, 1, tzinfo=timezone.utc)
+    df = parse_observations(FAKE_FRED_RESPONSE, "UNRATE", ingested_at=ts)
+
+    assert (df["ingested_at"] == ts).all()
+    assert (df["series_name"] == "Unemployment Rate").all()

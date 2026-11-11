@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: silver_macro_indicators
+    description: >
+      National FRED macro indicators, one row per month. Weekly series are
+      monthly averages; lower-frequency series are forward-filled, with
+      *_observed_month showing where each value came from.
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+      - name: mortgage_rate_30yr
+        description: Average 30-year fixed mortgage rate in the month (%).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 25}
+      - name: unemployment_rate
+        description: National unemployment rate (%).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 30}
+      - name: housing_starts_k
+        description: Housing starts, thousands of units (SAAR).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 5000}
+      - name: cpi_shelter
+        description: CPI-U shelter index.
+      - name: case_shiller_hpi
+        description: S&P CoreLogic Case-Shiller U.S. National Home Price Index.
+      - name: median_sale_price
+        description: Median sales price of houses sold in the US ($), quarterly, forward-filled.
+      - name: cpi_shelter_yoy_pct
+        description: Year-over-year % change in CPI shelter.
+      - name: case_shiller_hpi_yoy_pct
+        description: Year-over-year % change in Case-Shiller national HPI.

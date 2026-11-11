@@ -34,15 +34,47 @@ jobs:
       - name: Unit tests
         run: pytest tests/ -v
 
-      - name: dbt build (DuckDB)
+      - name: dbt build (DuckDB, synthetic Bronze fixture)
+        env:
+          LAKE_ROOT: ${{ github.workspace }}/.ci_lake
         run: |
           mkdir -p data
+          python scripts/make_fred_fixture.py --lake-root "$LAKE_ROOT"
           cd dbt && dbt build --profiles-dir .
 
   compose:
-    name: Validate docker compose
+    name: Compose + Airflow image + DAG imports
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: docker compose config
         run: docker compose -f docker/compose.yaml --profile core config -q
+
+      - name: Build Airflow image
+        run: docker compose -f docker/compose.yaml --profile core build airflow-scheduler
+
+      - name: DAGs import cleanly in the real image
+        run: |
+          docker run --rm \
+            -v "$PWD/dags:/opt/airflow/dags" \
+            -v "$PWD/ingestion:/opt/airflow/project/ingestion" \
+            -e PYTHONPATH=/opt/airflow/project:/opt/airflow/dags \
+            -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
+            rpof-airflow:3.4.0 python -c "
+          import sys
+          from airflow.dag_processing.dagbag import DagBag
+          bag = DagBag('/opt/airflow/dags')
+          for path, err in bag.import_errors.items():
+              print(f'{path}: {err}')
+          print('DAGs:', sorted(bag.dag_ids))
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build'}
+          sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
+          "
+
+      - name: dbt is runnable in the image
+        # The Airflow entrypoint only passes `bash`/`python` through; anything
+        # else is parsed as an `airflow` subcommand, so bypass it for dbt.
+        run: docker run --rm --entrypoint /opt/dbt-venv/bin/dbt rpof-airflow:3.4.0 --version
+
+      - name: Great Expectations imports in the image
+        run: docker run --rm rpof-airflow:3.4.0 python -c "import great_expectations as gx; print(gx.__version__)"

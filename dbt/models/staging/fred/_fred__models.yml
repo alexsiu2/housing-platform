@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_fred__observations
+    description: Typed FRED observations from Bronze. Grain is (series_id, observation_date).
+    columns:
+      - name: series_id
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [MORTGAGE30US, CUUR0000SAH1, HOUST, UNRATE, CSUSHPISA, MSPUS]
+      - name: observation_date
+        data_tests: [not_null]
+      - name: value
+        data_tests: [not_null]
