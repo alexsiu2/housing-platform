@@ -1,7 +1,10 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred smoke-test run-dag
+	backfill-fred smoke-test run-dag port-check
 
-COMPOSE := docker compose -f docker/compose.yaml --profile core
+# Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
+# compose file's own directory (docker/.env) by default; use the root .env.
+ENV_FILE := $(if $(wildcard .env),--env-file .env)
+COMPOSE := docker compose -f docker/compose.yaml $(ENV_FILE) --profile core
 DBT := cd dbt && dbt
 DBT_FLAGS := --profiles-dir .
 
@@ -12,9 +15,12 @@ setup:  ## Install Python dev dependencies and pre-commit hooks
 	pip install -r requirements-dev.txt
 	pre-commit install
 
-up:  ## Start the core local stack (SeaweedFS + Airflow)
+up: port-check  ## Start the core local stack (SeaweedFS + Airflow)
 	mkdir -p logs/airflow data
 	$(COMPOSE) up -d --build
+
+port-check:  ## Fail early, naming the culprit, if the Airflow port (AIRFLOW_PORT) is taken
+	@scripts/check_port.sh
 
 down:  ## Stop the local stack (keeps data volumes)
 	$(COMPOSE) down

@@ -21,6 +21,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# urllib3 logs full request URLs at DEBUG, and FRED puts the API key in the
+# query string. Keep it at WARNING so turning on debug logging can't leak it.
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 # The macro series this project tracks (design doc §5.2).

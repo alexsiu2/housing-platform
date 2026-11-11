@@ -58,12 +58,12 @@ jobs:
           docker run --rm \
             -v "$PWD/dags:/opt/airflow/dags" \
             -v "$PWD/ingestion:/opt/airflow/project/ingestion" \
-            -e PYTHONPATH=/opt/airflow/project \
+            -e PYTHONPATH=/opt/airflow/project:/opt/airflow/dags \
             -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
             rpof-airflow:3.4.0 python -c "
           import sys
           from airflow.dag_processing.dagbag import DagBag
-          bag = DagBag('/opt/airflow/dags', include_examples=False)
+          bag = DagBag('/opt/airflow/dags')
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))

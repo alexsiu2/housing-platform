@@ -27,7 +27,7 @@ make setup                    # Python dev deps + pre-commit hooks
 make up                       # SeaweedFS + Postgres + Airflow
 ```
 
-- Airflow UI: http://localhost:8080 (user/password `airflow` / `airflow` by default). If 8080 is taken, set `AIRFLOW_PORT=8081` in `.env`.
+- Airflow UI: http://localhost:8080 (user/password `airflow` / `airflow` by default). If 8080 is taken, `make up` stops and names what holds it (or check yourself with `docker ps --filter publish=8080` / `lsof -i :8080`); stop that, or set `AIRFLOW_PORT=8081` in `.env`.
 - Object storage (S3 API): http://localhost:8333 — buckets `rpof-raw` and `rpof-lake` are created on startup
 
 Run `make smoke-test` (or trigger **`platform_smoke_test`** in the UI) to confirm Airflow can write to object storage and to a Delta table.
