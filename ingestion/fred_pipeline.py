@@ -7,7 +7,7 @@ Used by both the Airflow DAG (dags/ingest_fred.py) and the backfill script
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -26,6 +26,32 @@ logger = logging.getLogger(__name__)
 
 BRONZE_TABLE = "fred_series_raw"
 BRONZE_KEYS = ["series_id", "date"]
+
+# Scheduled runs re-fetch a trailing window rather than only the newest week:
+# FRED revises recent observations, and the Bronze MERGE makes overlap free.
+DEFAULT_LOOKBACK_DAYS = 730
+
+
+def resolve_window(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    today: date | None = None,
+) -> tuple[str, str]:
+    """
+    Work out the observation window for a run, as ('YYYY-MM-DD', 'YYYY-MM-DD').
+
+    Explicit dates win; otherwise end = today and start = end - lookback_days.
+    """
+    end = date.fromisoformat(end_date) if end_date else (today or date.today())
+    start = (
+        date.fromisoformat(start_date)
+        if start_date
+        else end - timedelta(days=lookback_days)
+    )
+    if start > end:
+        raise ValueError(f"start_date {start} is after end_date {end}")
+    return start.isoformat(), end.isoformat()
 
 
 def raw_key(series_id: str, run_ts: datetime) -> str:
@@ -103,8 +129,13 @@ def load_raw_to_bronze(
     client=None,
     table_uri: str | None = None,
     storage_options: dict | None = None,
+    run_id: str | None = None,
 ) -> dict:
-    """Validate landed raw files and merge them into bronze.fred_series_raw."""
+    """
+    Validate landed raw files and merge them into bronze.fred_series_raw.
+
+    `run_id` (e.g. the Airflow run id) is stamped on every merged row.
+    """
     df = read_raw(keys, client=client)
     validation = validate_fred_observations(df, known_series=list(FRED_SERIES))
 
@@ -116,7 +147,14 @@ def load_raw_to_bronze(
             storage_options if storage_options is not None else delta_storage_options()
         ),
         partition_by=["series_id"],
+        run_id=run_id,
     )
     metrics["validation"] = validation
     metrics["raw_files"] = len(keys)
+    # Plain ints/strings so the dict stays JSON-serializable for Airflow XCom.
+    metrics["rows_per_series"] = {
+        str(k): int(v) for k, v in df.groupby("series_id").size().items()
+    }
+    metrics["min_date"] = df["date"].min().date().isoformat()
+    metrics["max_date"] = df["date"].max().date().isoformat()
     return metrics

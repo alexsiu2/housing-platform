@@ -26,7 +26,7 @@ FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 # The macro series this project tracks (design doc §5.2).
 FRED_SERIES = {
     "MORTGAGE30US": "30-Year Fixed Mortgage Rate",
-    "CUUR0000SAH": "CPI - Shelter Component",
+    "CUUR0000SAH1": "CPI - Shelter Component",
     "HOUST": "Housing Starts (National)",
     "UNRATE": "Unemployment Rate",
     "CSUSHPISA": "Case-Shiller Home Price Index (National)",

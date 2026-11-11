@@ -1,4 +1,5 @@
-.PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check
+.PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
+	backfill-fred smoke-test run-dag
 
 COMPOSE := docker compose -f docker/compose.yaml --profile core
 DBT := cd dbt && dbt
@@ -45,3 +46,12 @@ dbt-debug:  ## Check the dbt connection
 
 compose-check:  ## Validate the compose file without starting anything
 	$(COMPOSE) config -q
+
+backfill-fred:  ## Backfill FRED to Bronze, e.g. make backfill-fred START=2019-01-01 [END=...]
+	python scripts/backfill_fred.py $(if $(START),--start $(START)) $(if $(END),--end $(END))
+
+smoke-test:  ## Trigger platform_smoke_test in the running stack and wait for success
+	scripts/run_dag.sh platform_smoke_test
+
+run-dag:  ## Trigger a DAG and wait, e.g. make run-dag DAG=ingest_fred
+	scripts/run_dag.sh $(DAG)

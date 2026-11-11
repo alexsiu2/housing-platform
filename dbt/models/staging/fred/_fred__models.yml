@@ -9,7 +9,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: [MORTGAGE30US, CUUR0000SAH, HOUST, UNRATE, CSUSHPISA, MSPUS]
+                values: [MORTGAGE30US, CUUR0000SAH1, HOUST, UNRATE, CSUSHPISA, MSPUS]
       - name: observation_date
         data_tests: [not_null]
       - name: value

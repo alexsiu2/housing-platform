@@ -26,7 +26,7 @@ from ingestion.fred_pipeline import BRONZE_KEYS, BRONZE_TABLE  # noqa: E402
 # series_id -> (pandas frequency, base level, amplitude)
 FIXTURE_SERIES = {
     "MORTGAGE30US": ("W-THU", 5.0, 2.0),
-    "CUUR0000SAH": ("MS", 320.0, 40.0),
+    "CUUR0000SAH1": ("MS", 320.0, 40.0),
     "HOUST": ("MS", 1400.0, 200.0),
     "UNRATE": ("MS", 4.5, 1.5),
     "CSUSHPISA": ("MS", 280.0, 50.0),

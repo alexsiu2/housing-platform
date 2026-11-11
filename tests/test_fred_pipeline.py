@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import boto3
@@ -81,6 +81,34 @@ def test_extract_raises_if_all_fail(s3):
             )
 
 
+# ── window ─────────────────────────────────────────────────────────────────
+
+
+def test_window_defaults_to_lookback_from_today():
+    assert fred_pipeline.resolve_window(lookback_days=10, today=date(2024, 3, 5)) == (
+        "2024-02-24",
+        "2024-03-05",
+    )
+
+
+def test_window_explicit_dates_win():
+    assert fred_pipeline.resolve_window(
+        "2019-01-01", "2020-06-30", lookback_days=10, today=date(2024, 3, 5)
+    ) == ("2019-01-01", "2020-06-30")
+
+
+def test_window_start_only_runs_to_today():
+    assert fred_pipeline.resolve_window("2023-01-01", today=date(2024, 3, 5)) == (
+        "2023-01-01",
+        "2024-03-05",
+    )
+
+
+def test_window_rejects_inverted_range():
+    with pytest.raises(ValueError, match="after end_date"):
+        fred_pipeline.resolve_window("2024-02-01", "2024-01-01")
+
+
 # ── load ───────────────────────────────────────────────────────────────────
 
 
@@ -128,6 +156,25 @@ def test_reloading_with_revised_value_updates_not_duplicates(s3, tmp_path):
     assert m["rows_updated"] == 1
     assert len(out) == 1
     assert out["value"].iloc[0] == 3.8
+
+
+def test_load_stamps_run_id_and_reports_per_series_counts(s3, tmp_path):
+    keys = _extract(
+        s3,
+        {
+            "UNRATE": payload(("2024-01-01", "3.7"), ("2024-02-01", "3.9")),
+            "HOUST": payload(("2024-03-01", "1400")),
+        },
+    )
+    uri = str(tmp_path / "bronze")
+    m = fred_pipeline.load_raw_to_bronze(
+        keys, client=s3, table_uri=uri, storage_options={}, run_id="manual__x"
+    )
+
+    assert set(DeltaTable(uri).to_pandas()["run_id"]) == {"manual__x"}
+    assert m["rows_per_series"] == {"HOUST": 1, "UNRATE": 2}
+    assert (m["min_date"], m["max_date"]) == ("2024-01-01", "2024-03-01")
+    json.dumps(m)  # must stay XCom-serializable
 
 
 def test_load_rejects_invalid_data(s3, tmp_path):

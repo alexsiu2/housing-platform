@@ -186,7 +186,7 @@
 | Series | Meaning | Use |
 |---|---|---|
 | `MORTGAGE30US` | 30-yr fixed mortgage rate | Investor financing cost |
-| `CUUR0000SAH` | CPI: Shelter | National rent inflation benchmark |
+| `CUUR0000SAH1` | CPI: Shelter | National rent inflation benchmark |
 | `HOUST` | Housing starts | Supply signal |
 | `UNRATE` | Unemployment rate | Macro health |
 | `CSUSHPISA` | Case-Shiller national HPI | Price context |
@@ -593,12 +593,12 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 - [ ] **Done when:** `make up` starts Airflow + SeaweedFS; CI is green
 
 ### Phase 1 — FRED End-to-End *(previously "Step 1.2", in progress)*
-- [x] `fred_client.py` + 12 unit tests
-- [ ] Align series list with §5.2 (add `UNRATE`)
-- [ ] `scripts/backfill_fred.py` (5+ years)
-- [ ] Land raw JSON in SeaweedFS → GE suite → `bronze.fred_series_raw` (Delta MERGE)
-- [ ] dbt: `stg_fred_series` → `silver_macro_indicators` (+ tests)
-- [ ] `dags/ingest_fred.py` triggering `dbt_build` via Dataset
+- [x] `fred_client.py` + unit tests (retries, timeouts, key never in errors)
+- [x] Align series list with §5.2 (add `UNRATE`)
+- [x] `scripts/backfill_fred.py` (5+ years)
+- [x] Land raw JSON in SeaweedFS → GE suite → `bronze.fred_series_raw` (Delta MERGE)
+- [x] dbt: `stg_fred__observations` → `silver_macro_indicators` (+ tests)
+- [x] `dags/ingest_fred.py` triggering `dbt_build` via Asset
 - [ ] **Done when:** weekly DAG runs green and Silver updates automatically
 
 ### Phase 2 — Zillow + HUD Crosswalk

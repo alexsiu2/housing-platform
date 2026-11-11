@@ -11,7 +11,7 @@
 
 {%- set series = {
     'MORTGAGE30US': 'mortgage_rate_30yr',
-    'CUUR0000SAH': 'cpi_shelter',
+    'CUUR0000SAH1': 'cpi_shelter',
     'HOUST': 'housing_starts_k',
     'UNRATE': 'unemployment_rate',
     'CSUSHPISA': 'case_shiller_hpi',
