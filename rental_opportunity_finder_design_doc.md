@@ -113,9 +113,9 @@
                         │                                                                             │
   Zillow CSVs ─┐        │  Airflow DAGs                                                               │
   FRED API    ─┤        │   ingest_* tasks (Python clients) ──► raw files ──► GE validation ──┐       │
-  Census API  ─┼────────┼─►                                     (MinIO)                      │       │
+  Census API  ─┼────────┼─►                                     (SeaweedFS)                  │       │
   BLS API     ─┤        │                                                                    ▼       │
-  HUD xwalk   ─┘        │                                                    BRONZE (Delta on MinIO) │
+  HUD xwalk   ─┘        │                                                    BRONZE (Delta, S3 store)│
                         │                                                                    ▲       │
   HMDA files  ─┐        │   spark_* tasks (Spark batch, spark-submit) ───────────────────────┘       │
   GDELT bulk  ─┘────────┼─►  heavy parsing / filtering / aggregation                                 │
@@ -213,7 +213,7 @@
 ### 6.1 Storage Layout
 
 ```
-MinIO (local S3)  ── later: GCS
+SeaweedFS (local, S3-compatible)  ── later: GCS
   s3://rpof-raw/                      # immutable landing zone (files exactly as downloaded)
     zillow/{zori|zhvi}/YYYY/MM/*.csv
     fred/YYYY/MM/DD/*.json
@@ -228,8 +228,8 @@ MinIO (local S3)  ── later: GCS
   ./data/rpof.duckdb                  # dbt Silver/Gold models (local warehouse)
 ```
 
-- **Bronze** = Delta tables on MinIO, append/merge only, schema-on-read, with `ingested_at`, `source_file`, `run_id` on every row.
-- **Silver/Gold** = dbt models. Locally materialized in DuckDB, reading Bronze via DuckDB's `delta_scan` over S3/MinIO. In the cloud phase the same models run on BigQuery.
+- **Bronze** = Delta tables on SeaweedFS, append/merge only, schema-on-read, with `ingested_at`, `source_file`, `run_id` on every row.
+- **Silver/Gold** = dbt models. Locally materialized in DuckDB, reading Bronze via DuckDB's `delta_scan` over S3 (SeaweedFS). In the cloud phase the same models run on BigQuery.
 - Spark writes heavy aggregates (HMDA, GDELT) to `silver_spark/` Delta tables, which dbt treats as sources.
 
 ### 6.2 Bronze Tables
@@ -467,7 +467,7 @@ Failures stop downstream tasks (no silent passes) and send an alert (Slack webho
 
 ### 10.3 Monitoring
 
-- **Prometheus** scrapes Airflow (StatsD exporter), Kafka (JMX/Kafka exporter: consumer lag), Spark and MinIO metrics.
+- **Prometheus** scrapes Airflow (StatsD exporter), Kafka (JMX/Kafka exporter: consumer lag), Spark and SeaweedFS metrics.
 - **Grafana** dashboards: DAG success/duration, Kafka lag per topic, Bronze freshness, LLM job token usage and cost per run.
 
 ---
@@ -480,7 +480,7 @@ Docker Compose **profiles** keep laptop resource use manageable — run only wha
 
 | Profile | Services | Approx. RAM |
 |---|---|---|
-| `core` | MinIO, Postgres (Airflow metadata), Airflow (api-server/webserver, scheduler, worker/triggerer) | ~4 GB |
+| `core` | SeaweedFS, Postgres (Airflow metadata), Airflow (api-server/webserver, scheduler, worker/triggerer) | ~4 GB |
 | `spark` | Spark master + 1–2 workers | +2–4 GB |
 | `streaming` | Kafka (KRaft, single broker), Schema Registry, Kafka UI, producers, streaming job | +2–3 GB |
 | `observability` | Prometheus, Grafana, Marquez (+ its Postgres) | +1–2 GB |
@@ -547,7 +547,7 @@ No Cloud Composer, no managed Kafka, no always-on Dataproc/Databricks clusters, 
 housing-platform/
 ├── ingestion/                 # Python clients: fred, zillow, census, bls, hud
 │   ├── fred_client.py         # ✅ exists
-│   ├── storage.py             # S3/MinIO/GCS wrapper (boto3/fsspec)
+│   ├── storage.py             # S3/SeaweedFS/GCS wrapper (boto3/fsspec)
 │   └── bronze_loader.py       # deltalake MERGE helpers
 ├── streaming/
 │   ├── producers/             # rss_producer.py, reddit_producer.py, gdelt_producer.py
@@ -586,17 +586,17 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 
 ### Phase 0 — Cleanup & Platform Foundation
 - [ ] Repo cleanup (see Appendix §18)
-- [ ] `docker/compose.yaml` with `core` profile (MinIO, Postgres, Airflow)
+- [ ] `docker/compose.yaml` with `core` profile (SeaweedFS, Postgres, Airflow)
 - [ ] `ingestion/storage.py` + `ingestion/bronze_loader.py`
 - [ ] Commit `dbt/profiles.yml` (DuckDB, env-var driven)
 - [ ] GitHub Actions CI: lint + pytest + `dbt build`
-- [ ] **Done when:** `make up` starts Airflow + MinIO; CI is green
+- [ ] **Done when:** `make up` starts Airflow + SeaweedFS; CI is green
 
 ### Phase 1 — FRED End-to-End *(previously "Step 1.2", in progress)*
 - [x] `fred_client.py` + 12 unit tests
 - [ ] Align series list with §5.2 (add `UNRATE`)
 - [ ] `scripts/backfill_fred.py` (5+ years)
-- [ ] Land raw JSON in MinIO → GE suite → `bronze.fred_series_raw` (Delta MERGE)
+- [ ] Land raw JSON in SeaweedFS → GE suite → `bronze.fred_series_raw` (Delta MERGE)
 - [ ] dbt: `stg_fred_series` → `silver_macro_indicators` (+ tests)
 - [ ] `dags/ingest_fred.py` triggering `dbt_build` via Dataset
 - [ ] **Done when:** weekly DAG runs green and Silver updates automatically
@@ -661,7 +661,7 @@ Redfin, HUD FMR, score v2 (§7.5), tier-change alerts, dbt snapshots for score h
 | Item | Monthly cost |
 |---|---|
 | All data sources | $0 (free keys for FRED, Census, BLS, Reddit) |
-| Docker stack (Airflow, Spark, Kafka, MinIO, observability) | $0 — runs on your machine |
+| Docker stack (Airflow, Spark, Kafka, SeaweedFS, observability) | $0 — runs on your machine |
 | GitHub + GitHub Actions (public repo) | $0 |
 | **LLM outlook (Claude Batch API)** | **~$1–6** — see below |
 | **Total** | **~$1–6 / month** |
@@ -699,7 +699,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | Orchestration | Apache Airflow (Docker; data-aware scheduling) |
 | Batch processing | Python (small sources), Apache Spark + delta-spark (large sources) |
 | Streaming | Apache Kafka (KRaft) + Schema Registry (Avro), Spark Structured Streaming |
-| Object storage | MinIO (local) → GCS (cloud) |
+| Object storage | SeaweedFS (local) → GCS (cloud) |
 | Table format | Delta Lake |
 | Transformation | dbt (dbt-duckdb → dbt-bigquery) |
 | Warehouse / query | DuckDB (local) → BigQuery (cloud) |
@@ -727,6 +727,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | D8 | RSS/Reddit API/GDELT over raw article scraping | Scrape full articles | Respects site terms and paywalls; GDELT provides scale legitimately |
 | D9 | LLM weekly via Batch API | Daily / real-time | Rental markets move slowly; ~95% cheaper than daily, 50% batch discount |
 | D10 | Scoring in Python, not SQL | dbt-only | Cross-zip percentile ranking + config-driven weights are clearer in pandas |
+| D11 | SeaweedFS for local object storage | MinIO | MinIO's community Docker images are no longer published on Docker Hub; SeaweedFS is Apache-2.0 and S3-compatible, so boto3/deltalake/DuckDB code is unchanged |
 
 ---
 
