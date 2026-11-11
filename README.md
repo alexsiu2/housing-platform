@@ -20,7 +20,7 @@ Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`
 
 ## Quickstart
 
-Requirements: Docker with ~4 GB RAM free, Python 3.11.
+Requirements: Docker with ~4 GB RAM free (8 GB recommended once Zillow is loaded: the in-Airflow `dbt build` peaks around 2.3 GB on the full ZHVI table), Python 3.11.
 
 ```bash
 cp .env.example .env          # then add your FRED_API_KEY

@@ -9,8 +9,9 @@ Each row carries address-share ratios (res_ratio = residential share, etc.).
 Requires a free token from huduser.gov in HUD_API_TOKEN, sent as a Bearer
 header. Like the FRED client, errors never include the token.
 
-The response field names for tract-zip are handled both ways the API has
-used ("tract" or "geoid" for the tract id) until confirmed against a live call.
+Response shapes (verified against the live API, vintage 2026Q2):
+  zip-cbsa:  {"zip": "00501", "geoid": "35620", ...ratios, "city", "state"}
+  tract-zip: {"tract": "36103158607", "geoid": "00501", ...}  <- zip is geoid
 """
 
 import logging
@@ -130,9 +131,12 @@ def parse_crosswalk(payload: dict, crosswalk: str) -> pd.DataFrame:
         raise ValueError(f"No results in HUD {crosswalk} response")
 
     df = pd.DataFrame(results)
-    if crosswalk == "tract-zip" and "tract" in df.columns:
-        # tract is the input geography; the API may also send the zip as geoid
-        df["geoid"] = df["tract"]
+    if crosswalk == "tract-zip":
+        # Verified 2026Q2: tract-zip rows are {"tract": <tract>, "geoid": <zip>}
+        # with no "zip" key. Normalize to zip=<zip>, geoid=<tract>.
+        if "tract" not in df.columns:
+            raise ValueError("HUD tract-zip response missing fields ['tract']")
+        df = df.rename(columns={"geoid": "zip", "tract": "geoid"})
     missing = [c for c in ["zip", "geoid", "res_ratio"] if c not in df.columns]
     if missing:
         raise ValueError(f"HUD {crosswalk} response missing fields {missing}")

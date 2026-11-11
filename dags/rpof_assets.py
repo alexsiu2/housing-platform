@@ -1,9 +1,9 @@
 """
 Airflow Assets for the lake, shared by producer and consumer DAGs.
 
-An ingest DAG lists a Bronze asset in a task's `outlets`; dbt_build is
-scheduled on ANY_BRONZE_UPDATE, so Silver rebuilds whenever any Bronze table
-changes (design doc §8.1, data-aware scheduling).
+Load tasks list their Bronze table asset in `outlets` (lineage in the UI).
+dbt_build is scheduled on ANY_BRONZE_UPDATE, one event per successful ingest
+run, so Silver rebuilds whenever Bronze changes (design doc §8.1).
 
 Note: a plain list as a schedule means "all of these updated"; `|` means any.
 
@@ -28,7 +28,15 @@ BRONZE_ZORI = _bronze("zori_raw")
 BRONZE_ZHVI = _bronze("zhvi_raw")
 BRONZE_HUD_CROSSWALK = _bronze("hud_crosswalk_raw")
 
-BRONZE_ASSETS = [BRONZE_FRED, BRONZE_ZORI, BRONZE_ZHVI, BRONZE_HUD_CROSSWALK]
+# One "ready" signal per multi-table ingest DAG. Airflow creates a separate
+# asset-triggered run per event, so if dbt_build listened to zori_raw and
+# zhvi_raw directly, one Zillow run would queue two dbt builds.
+ZILLOW_READY = Asset(
+    name="bronze.zillow_ready", uri=f"s3://{_LAKE}/bronze/_ready/zillow"
+)
 
-# Triggers when any one Bronze table updates.
-ANY_BRONZE_UPDATE = reduce(or_, BRONZE_ASSETS)
+# What dbt_build listens to: exactly one event per successful ingest run.
+DBT_TRIGGERS = [BRONZE_FRED, ZILLOW_READY, BRONZE_HUD_CROSSWALK]
+
+# Triggers when any one of them updates.
+ANY_BRONZE_UPDATE = reduce(or_, DBT_TRIGGERS)

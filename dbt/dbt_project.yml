@@ -11,6 +11,12 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
+# The delta plugin loads each Bronze source on its own thread, and each load
+# creates the `bronze` schema. Two threads creating it at once fails with a
+# DuckDB "Catalog write-write conflict", so create it once up front.
+on-run-start:
+  - "create schema if not exists bronze"
+
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"

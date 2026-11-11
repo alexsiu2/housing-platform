@@ -117,8 +117,9 @@ def hud_payload(crosswalk: str) -> dict:
     else:
         results = [
             {
+                # Real API shape: the zip comes back as "geoid".
                 "tract": f"{36061000100 + i}",
-                "zip": z,
+                "geoid": z,
                 "res_ratio": 1.0,
                 "bus_ratio": 1.0,
                 "oth_ratio": 0.0,

@@ -42,15 +42,20 @@ def _zip_cbsa_payload(n=1200):
     }
 
 
-def _tract_zip_payload(field="tract", n=1200):
+def _tract_zip_payload(n=1200):
+    """Real shape (verified 2026Q2): tract + geoid (= zip), no "zip" key."""
     return {
         "data": {
-            "year": 2025,
-            "quarter": 2,
+            "year": "2025",
+            "quarter": "2",
+            "input": "All",
+            "crosswalk_type": "tract-zip",
             "results": [
                 {
-                    field: f"{36061000100 + i}",
-                    "zip": "1001" if i == 0 else f"{10000 + i}",
+                    "tract": f"{36061000100 + i}",
+                    "geoid": "1001" if i == 0 else f"{10000 + i}",
+                    "city": "NEW YORK",
+                    "state": "NY",
                     "res_ratio": 0.5,
                     "bus_ratio": 0.25,
                     "oth_ratio": 0,
@@ -77,12 +82,19 @@ def test_parse_zip_cbsa():
     assert (df["zip"] == "10000").sum() == 2
 
 
-@pytest.mark.parametrize("field", ["tract", "geoid"])
-def test_parse_tract_zip_accepts_either_field_name(field):
-    df = hud_client.parse_crosswalk(_tract_zip_payload(field), "tract-zip")
-    assert df["geoid"].iloc[0] == "36061000100"
-    assert df["zip"].iloc[0] == "01001"  # zero-padded
-    assert df["city"].isna().all()
+def test_parse_tract_zip_maps_geoid_to_zip_and_tract_to_geoid():
+    df = hud_client.parse_crosswalk(_tract_zip_payload(), "tract-zip")
+    assert df["geoid"].iloc[0] == "36061000100"  # tract
+    assert df["zip"].iloc[0] == "01001"  # zero-padded zip
+    assert df["city"].iloc[0] == "NEW YORK"
+
+
+def test_parse_tract_zip_without_tract_field_fails_loudly():
+    payload = _tract_zip_payload()
+    for r in payload["data"]["results"]:
+        del r["tract"]
+    with pytest.raises(ValueError, match="tract"):
+        hud_client.parse_crosswalk(payload, "tract-zip")
 
 
 def test_parse_rejects_empty_results():

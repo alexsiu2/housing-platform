@@ -8,14 +8,16 @@ Runs on the 20th: Zillow refreshes these files mid-month (last seen on the
 revises recent months; set lookback_months=0 on a manual run to reload the
 full history (or use `make backfill-zillow`).
 
-Each successful load updates its Bronze asset, which schedules dbt_build.
+Each load updates its Bronze table asset (lineage). Once both succeed,
+`publish` emits the single ZILLOW_READY event that schedules dbt_build, so
+one Zillow run means one dbt build.
 """
 
 from datetime import datetime, timedelta
 
 from airflow.sdk import Param, dag, task
 
-from rpof_assets import BRONZE_ZHVI, BRONZE_ZORI
+from rpof_assets import BRONZE_ZHVI, BRONZE_ZORI, ZILLOW_READY
 
 OUTLETS = {"zori": BRONZE_ZORI, "zhvi": BRONZE_ZHVI}
 
@@ -38,6 +40,11 @@ OUTLETS = {"zori": BRONZE_ZORI, "zhvi": BRONZE_ZHVI}
     tags=["phase-2", "ingest", "zillow"],
 )
 def ingest_zillow():
+    @task(outlets=[ZILLOW_READY])
+    def publish(results: list[dict]) -> list[str]:
+        return [r["dataset"] for r in results]
+
+    loads = []
     for dataset, asset in OUTLETS.items():
 
         @task(task_id=f"extract_{dataset}")
@@ -66,7 +73,9 @@ def ingest_zillow():
                 run_id=run_id,
             )
 
-        load_bronze(extract())
+        loads.append(load_bronze(extract()))
+
+    publish(loads)
 
 
 ingest_zillow()
