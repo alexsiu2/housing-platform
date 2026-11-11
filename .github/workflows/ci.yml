@@ -72,7 +72,9 @@ jobs:
           "
 
       - name: dbt is runnable in the image
-        run: docker run --rm rpof-airflow:3.4.0 /opt/dbt-venv/bin/dbt --version
+        # The Airflow entrypoint only passes `bash`/`python` through; anything
+        # else is parsed as an `airflow` subcommand, so bypass it for dbt.
+        run: docker run --rm --entrypoint /opt/dbt-venv/bin/dbt rpof-airflow:3.4.0 --version
 
       - name: Great Expectations imports in the image
         run: docker run --rm rpof-airflow:3.4.0 python -c "import great_expectations as gx; print(gx.__version__)"
