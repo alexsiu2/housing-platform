@@ -1,22 +1,30 @@
 # Rental Property Opportunity Finder
-## Technical Design Document v2.0
+## Technical Design Document v3.0
+
+*Status: Draft · Last revised: 2026-11-11 · Author: Alex (UC Berkeley, MIDS/Haas)*
 
 ---
 
 ## Table of Contents
 
 1. [Project Overview](#1-project-overview)
-2. [Goals & Success Metrics](#2-goals--success-metrics)
-3. [Architecture Overview](#3-architecture-overview)
-4. [Data Sources](#4-data-sources)
-5. [Data Model & Schema Design](#5-data-model--schema-design)
-6. [Opportunity Score Design](#6-opportunity-score-design)
-7. [Pipeline Design](#7-pipeline-design)
-8. [Dashboard & Serving Layer](#8-dashboard--serving-layer)
-9. [Infrastructure & DevOps](#9-infrastructure--devops)
-10. [Project Phases — Step-by-Step Build Plan](#10-project-phases--step-by-step-build-plan)
-11. [Tech Stack Summary](#11-tech-stack-summary)
-12. [Risks & Mitigations](#12-risks--mitigations)
+2. [What Changed from v2.0](#2-what-changed-from-v20)
+3. [Goals, Non-Goals & Success Metrics](#3-goals-non-goals--success-metrics)
+4. [Architecture Overview](#4-architecture-overview)
+5. [Data Sources & Volumes](#5-data-sources--volumes)
+6. [Storage & Data Model](#6-storage--data-model)
+7. [Opportunity Score Design](#7-opportunity-score-design)
+8. [Batch Pipeline Design](#8-batch-pipeline-design)
+9. [Streaming News & Sentiment Pipeline](#9-streaming-news--sentiment-pipeline)
+10. [Data Quality, Lineage & Observability](#10-data-quality-lineage--observability)
+11. [Local Platform (Docker Compose)](#11-local-platform-docker-compose)
+12. [Cloud Deployment & IAM (Deferred)](#12-cloud-deployment--iam-deferred)
+13. [Repo Structure](#13-repo-structure)
+14. [Build Plan — Phases](#14-build-plan--phases)
+15. [Cost Model](#15-cost-model)
+16. [Tech Stack & Decision Log](#16-tech-stack--decision-log)
+17. [Risks & Mitigations](#17-risks--mitigations)
+18. [Appendix: Repo Cleanup Backlog](#18-appendix-repo-cleanup-backlog)
 
 ---
 
@@ -24,982 +32,737 @@
 
 **Project Name:** Rental Property Opportunity Finder (RPOF)
 
-**One-Line Summary:** A production-grade data engineering pipeline that ingests entirely free, open housing and demographic data, transforms it through a medallion lakehouse architecture, and surfaces a ranked zip-code opportunity score to identify the best US markets for rental property investment.
-
-**Motivation:** Tools like RentCast and PropertyScout360 solve this problem as paid SaaS products. This project builds the same analytical output from scratch using only open data — demonstrating that a well-architected data pipeline can replicate commercial-grade market intelligence at zero data cost. The secondary motivation is personal: the dashboard is a genuinely useful tool for evaluating real estate investment decisions.
+**One-Line Summary:** A local-first data platform that ingests free, open housing, lending, labor and news data through both batch (Airflow + Spark) and streaming (Kafka + Spark Structured Streaming) paths, models it in a Bronze → Silver → Gold lakehouse with dbt, and serves a ranked, explainable zip-code opportunity score plus an AI-summarized market outlook for rental property investors.
 
 **The core question the platform answers:**
-> "Which US zip codes right now offer the best combination of rent growth, affordable entry price for investors, sustainable renter demand, and population growth signals?"
+> "Which US zip codes right now offer the best combination of rent growth, affordable entry price, sustainable renter demand and job growth — and what is the market saying about them?"
 
-**What makes this portfolio-worthy:**
-- End-to-end pipeline with real orchestration (Airflow), not a notebook
-- Multi-source data fusion from 5 open data sources requiring schema reconciliation
-- Production dbt medallion architecture (Bronze → Silver → Gold) with data quality tests
-- Explainable composite scoring model — no black box, every score is decomposable
-- Live deployed dashboard with a public URL
-- $0 data cost — entirely open/free data sources
-- Personally usable: a real investment research tool, not a toy
+**Why this project:**
+- **Personally useful** — a real tool for evaluating rental investments, not a toy.
+- **Portfolio signal** — demonstrates the tools data engineering teams use (Airflow, Spark, Kafka, dbt, Delta Lake, Terraform, CI/CD, data quality, lineage) where each tool has a *real* job, justified by the data.
+- **$0 data cost** — every data source is free/open.
+- **Low running cost** — the whole stack runs locally in Docker. The only recurring outside cost is the LLM summarization step (~$1–6/month). A cloud deployment is designed but deferred.
+
+**Guiding principle — every tool earns its place.** The core housing data (~10M rows, monthly cadence) fits on a laptop. Spark is introduced for genuinely large sources (HMDA loan-level records, GDELT), and Kafka for genuinely continuous ones (news/Reddit). No tool is added only for the résumé.
 
 ---
 
-## 2. Goals & Success Metrics
+## 2. What Changed from v2.0
 
-### Primary Goals
+| Area | v2.0 | v3.0 | Why |
+|---|---|---|---|
+| Hosting | Local dev → GCP + Snowflake | **Local-first**; cloud deferred to optional phase | Keep cost near $0 while building |
+| Cloud warehouse | Snowflake | **BigQuery** (when deployed) | Free tier covers this scale; already on GCP |
+| Spark | Not used | **Spark batch** for HMDA + GDELT backfills; **Structured Streaming** for news | New large sources justify it |
+| Kafka | Not used | **Kafka (KRaft) + Schema Registry** for news/Reddit/GDELT events | Continuous event data justifies it |
+| New sources | — | HMDA, GDELT, Reddit, RSS news, Redfin (stretch) | Investor activity + market sentiment |
+| AI layer | — | **Weekly LLM market outlook per metro** (Claude, Batch API) | Turns unstructured text into a Gold table |
+| Jobs data | BLS QCEW (quarterly, ~5–6 mo lag) | **BLS CES metro employment** (monthly) | More timely; QCEW kept as optional |
+| IaC / IAM | "Terraform as stretch" | **Terraform** for IAM, buckets, BigQuery, budget alerts (cloud phase) | Least-privilege IAM is a core skill |
+| Data quality | dbt tests | dbt tests + **Great Expectations** at ingestion | Catch bad data before Bronze |
+| Lineage / monitoring | — | **OpenLineage + Marquez**, **Prometheus + Grafana** | Production-maturity signals |
+| CI/CD | Stretch | **GitHub Actions** from Phase 0 | Tests and lint on every PR |
+| Databricks | — | **Omitted** (possible future stretch via Free Edition) | Avoids cost and platform split |
+| Unused deps | MLflow, XGBoost, scikit-learn, RapidAPI, Walk Score | **Removed** | Leftovers from v1.0 scope |
+
+---
+
+## 3. Goals, Non-Goals & Success Metrics
+
+### 3.1 Primary Goals
 
 | Goal | Definition of Done |
-|------|-------------------|
-| Ingest Zillow ZORI (rent index) by zip | Monthly CSV download → Bronze, covering full history |
-| Ingest Zillow ZHVI (home value index) by zip | Monthly CSV download → Bronze, covering full history |
-| Ingest FRED macro signals | Weekly API fetch of 4 key series → Bronze |
-| Ingest Census ACS demographics by zip | Annual API fetch → Bronze |
-| Ingest BLS job growth by metro | Quarterly API fetch → Bronze |
-| Build medallion lakehouse | Bronze/Silver/Gold with dbt, all tests passing |
-| Compute opportunity score | Per-zip composite score with 5 sub-metrics, updated monthly |
-| Live dashboard | Deployed Evidence.dev instance with public URL |
-| Data quality layer | dbt tests on all Gold tables, zero silent failures |
+|---|---|
+| Core batch ingest (Zillow, FRED, Census, BLS, HUD) | Each source lands in Bronze Delta on a schedule via Airflow; re-runs are idempotent |
+| Lakehouse modeling | Silver + Gold dbt models build with all tests passing |
+| Opportunity score | `gold.zip_opportunity_score` refreshed monthly, fully decomposable into sub-scores |
+| Large-scale batch with Spark | HMDA loan-level history (2018+) processed by Spark into zip-level investor-activity metrics |
+| Streaming ingest | RSS, Reddit and GDELT events flow through Kafka → Spark Structured Streaming → Bronze Delta continuously |
+| AI market outlook | `gold.metro_news_outlook` refreshed weekly with structured, source-cited summaries |
+| Dashboard | Evidence.dev site with 5 pages runs locally and builds to static files |
+| Data quality | GE checks at ingestion + dbt tests on all Silver/Gold models; failures alert, never pass silently |
+| Lineage & monitoring | Every Airflow/Spark/dbt job emits OpenLineage events to Marquez; Grafana shows freshness + Kafka lag |
+| CI | GitHub Actions runs lint, unit tests and `dbt build` (against DuckDB) on every PR |
+| Reproducibility | `make up` brings up the entire stack on a fresh machine |
 
-### Stretch Goals
+### 3.2 Non-Goals (for now)
+
+- Property-level valuation or listing scraping (zip/metro granularity only).
+- ML price prediction (removed in v2.0; may return later).
+- Always-on cloud infrastructure or managed services with fixed monthly fees.
+- Databricks (see Decision Log).
+
+### 3.3 Stretch Goals
 
 | Goal | Notes |
-|------|-------|
-| HUD Fair Market Rents integration | Adds a second rent data source for cross-validation |
-| Cap rate estimator | Requires property tax data by county — complex but valuable |
-| Email alert system | Notify when a zip's opportunity score crosses a threshold |
-| Redfin data integration | Adds listing-level data for deeper zip analysis |
-| Terraform for GCP infra | IaC polish for the resume |
-| GitHub Actions CI/CD | Auto-deploy on push to main |
+|---|---|
+| Cloud deployment (Phase 8) | Terraform-managed GCP: GCS, BigQuery, IAM, Secret Manager, budget alerts |
+| Redfin market data | Inventory, days on market, sale-to-list by zip |
+| HUD Fair Market Rents | Second rent source for cross-validation |
+| Sentiment as a score input | Add `score_market_sentiment` once outlook data has a few months of history |
+| Tier-change alerts | Email/Slack when a zip's tier changes |
+| Historical score tracking | Snapshot scores monthly (dbt snapshots) |
+| Databricks Free Edition | Run the HMDA Spark job there as a portability demo |
 
 ---
 
-## 3. Architecture Overview
+## 4. Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         INGESTION LAYER                               │
-│                                                                        │
-│  [Zillow ZORI CSV]  [Zillow ZHVI CSV]  [FRED API]  [Census API]       │
-│                              [BLS API]                                 │
-│                                   │                                    │
-│              Python ingest scripts (called by Airflow DAGs)           │
-└───────────────────────────────────┬──────────────────────────────────┘
-                                    │
-                                    ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                          STORAGE LAYER                                 │
-│                                                                        │
-│   GCS Bucket: rental-opportunity-raw/                                 │
-│     ├── zillow/zori/YYYY/MM/Metro_zhvi_uc_sfrcondo_tier_0.33_0.67... │
-│     ├── zillow/zhvi/YYYY/MM/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67...   │
-│     ├── fred/YYYY/MM/DD/*.json                                        │
-│     ├── census/YYYY/*.json                                            │
-│     └── bls/YYYY/QQ/*.json                                            │
-│                                                                        │
-│   BRONZE Delta Tables (raw, append-only, schema-on-read)              │
-│     ├── bronze.zori_raw                                               │
-│     ├── bronze.zhvi_raw                                               │
-│     ├── bronze.fred_series_raw      ← already built ✅                │
-│     ├── bronze.census_acs_raw                                         │
-│     └── bronze.bls_metro_raw                                          │
-└───────────────────────────────────┬──────────────────────────────────┘
-                                    │
-                                    ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                    TRANSFORMATION LAYER (dbt)                          │
-│                                                                        │
-│   SILVER (cleaned, typed, deduplicated, joined)                       │
-│     ├── silver.rent_index          (ZORI by zip, monthly)             │
-│     ├── silver.home_values         (ZHVI by zip, monthly)             │
-│     ├── silver.mortgage_rates      (FRED, forward-filled) ← built ✅  │
-│     ├── silver.zip_demographics    (Census ACS, annual)               │
-│     └── silver.metro_job_growth    (BLS, quarterly)                   │
-│                                                                        │
-│   GOLD (business metrics, investment analytics)                       │
-│     ├── gold.zip_investment_metrics    (all metrics per zip)          │
-│     └── gold.zip_opportunity_score     (ranked composite score)       │
-└──────────────────────┬────────────────────────────────────────────────┘
-                       │
-             ┌─────────┴─────────┐
-             ▼                   ▼
-┌────────────────────┐  ┌───────────────────────────────────────────┐
-│   SCORING LAYER    │  │            SERVING LAYER                   │
-│                    │  │                                             │
-│  score.py          │  │  DuckDB (dev) / Snowflake (prod)           │
-│  Reads Gold metrics│  │  ← queried by Evidence.dev dashboard       │
-│  Applies weighting │  │                                             │
-│  Writes scores     │  │  Dashboard pages:                          │
-│  back to Gold      │  │  - National opportunity map                │
-│                    │  │  - Zip deep-dive                           │
-└────────────────────┘  │  - Metro comparison                        │
-                        │  - Custom screener                         │
-                        └───────────────────────────────────────────┘
-                                        │
-                    ┌───────────────────┴──────────────────────┐
-                    ▼                                           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION (Airflow)                             │
-│                                                                        │
-│   DAGs:                                                                │
-│   - ingest_zillow_monthly        (1st of month — downloads CSVs)     │
-│   - ingest_fred_weekly           (Mondays) ← already built ✅         │
-│   - ingest_census_annual         (January — ACS release)             │
-│   - ingest_bls_quarterly         (quarterly BLS release)             │
-│   - run_dbt_silver               (after each ingest DAG)             │
-│   - run_dbt_gold                 (after silver runs)                  │
-│   - compute_opportunity_scores   (after gold runs)                   │
-│   - data_quality_checks          (after scoring)                     │
-└──────────────────────────────────────────────────────────────────────┘
+                        ┌──────────────────────────────── BATCH PATH ────────────────────────────────┐
+                        │                                                                             │
+  Zillow CSVs ─┐        │  Airflow DAGs                                                               │
+  FRED API    ─┤        │   ingest_* tasks (Python clients) ──► raw files ──► GE validation ──┐       │
+  Census API  ─┼────────┼─►                                     (SeaweedFS)                  │       │
+  BLS API     ─┤        │                                                                    ▼       │
+  HUD xwalk   ─┘        │                                                    BRONZE (Delta, S3 store)│
+                        │                                                                    ▲       │
+  HMDA files  ─┐        │   spark_* tasks (Spark batch, spark-submit) ───────────────────────┘       │
+  GDELT bulk  ─┘────────┼─►  heavy parsing / filtering / aggregation                                 │
+                        └─────────────────────────────────────────────────────────────────────────────┘
+
+                        ┌────────────────────────────── STREAMING PATH ──────────────────────────────┐
+  RSS feeds   ─┐        │  Producers (Python,      Kafka (KRaft)              Spark Structured        │
+  Reddit API  ─┼────────┼─► polling services) ──►  + Schema Registry  ──────► Streaming ──► BRONZE   │
+  GDELT 15min ─┘        │                          topics: news.*             (dedupe, parse)  Delta  │
+                        └─────────────────────────────────────────────────────────────────────────────┘
+
+                                                         │
+                                                         ▼
+                        ┌───────────────────────── TRANSFORM & SERVE ────────────────────────────────┐
+                        │  dbt (dbt-duckdb locally / dbt-bigquery in cloud)                          │
+                        │    staging → SILVER → GOLD                                                 │
+                        │  scoring/score.py ──► gold.zip_opportunity_score                           │
+                        │  llm/summarize.py (Claude Batch API, weekly) ──► gold.metro_news_outlook   │
+                        │                                                                            │
+                        │  DuckDB (local)  ──►  Evidence.dev dashboard (static build)                │
+                        └─────────────────────────────────────────────────────────────────────────────┘
+
+  Cross-cutting:  Great Expectations · dbt tests · OpenLineage → Marquez · Prometheus → Grafana
+                  GitHub Actions CI · Terraform (cloud phase) · Docker Compose (everything local)
 ```
 
----
+**Division of labor between tools:**
 
-## 4. Data Sources
-
-### 4.1 Zillow Research CSVs — ZORI (Rent Index)
-
-- **What:** Zillow Observed Rent Index — smoothed monthly rent estimate per zip code, weighted to represent the full rental housing stock (not just listed units)
-- **How:** Direct CSV download from `zillow.com/research/data/` — no API key, no rate limits, completely free
-- **File:** `Zip_zori_uc_sfrcondomfr_sm_month.csv`
-- **Coverage:** ~2,500 zip codes nationally, monthly data back to 2015
-- **Key columns:** `RegionName` (zip), `RegionID`, `MsaName`, then one column per month (`2015-01-31`, `2015-02-28`, etc.) — wide format, must be melted to long
-- **Cadence:** Released monthly, usually the first week of the month
-- **What we use it for:** Current rent level per zip, rent growth YoY, rent growth 3yr
-
-### 4.2 Zillow Research CSVs — ZHVI (Home Value Index)
-
-- **What:** Zillow Home Value Index — smoothed monthly estimate of typical home value per zip code (middle tier, single family + condo)
-- **How:** Same download page as ZORI — free CSV
-- **File:** `Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv`
-- **Coverage:** ~26,000 zip codes nationally, monthly data back to 2000
-- **Key columns:** Same wide format as ZORI — `RegionName`, `RegionID`, `StateName`, `Metro`, then monthly columns
-- **Cadence:** Monthly
-- **What we use it for:** Entry price for investors, price-to-rent ratio, home value growth
-
-### 4.3 FRED API — Macro Context
-
-- **What:** Macro signals that affect rental investment returns
-- **How:** FRED API — already built in `ingestion/fred_client.py` ✅
-- **Series:**
-  - `MORTGAGE30US` — 30-year fixed rate (affects investor financing cost)
-  - `CUUR0000SAH` — CPI shelter (national rent inflation benchmark)
-  - `UNRATE` — National unemployment rate (economic health signal)
-  - `HOUST` — Housing starts (supply signal)
-- **Cadence:** Weekly
-
-### 4.4 Census ACS API — Demographics by Zip
-
-- **What:** Zip-level demographic and economic data from the American Community Survey
-- **How:** Census API — free, no key required for low volume
-- **Tables:**
-  - `B19013_001E` — Median household income (renter affordability denominator)
-  - `B01003_001E` — Total population
-  - `B25003_003E` — Renter-occupied units (rental market size signal)
-  - `B25003_001E` — Total occupied housing units (to compute renter ratio)
-  - `B23025_005E` — Unemployed population (local employment signal)
-- **Cadence:** Annual (ACS 5-year estimates, released each December)
-- **What we use it for:** Renter affordability ratio, rental demand proxy, population base
-
-### 4.5 BLS API — Job Growth by Metro
-
-- **What:** Quarterly employment levels and year-over-year job growth by Metropolitan Statistical Area (MSA)
-- **How:** Bureau of Labor Statistics public API — free
-- **Series:** Quarterly Census of Employment and Wages (QCEW), total nonfarm employment by MSA
-- **Cadence:** Quarterly (released ~5 months after the reference quarter)
-- **What we use it for:** Job growth is the strongest predictor of sustained rental demand. A metro adding jobs attracts workers who need housing.
-- **Join key:** MSA code → zip via HUD USPS crosswalk
-
-### 4.6 HUD USPS Crosswalk (Reference Table)
-
-- **What:** Maps zip codes to CBSA/MSA codes — the critical join key that connects zip-level data (Zillow, Census) to metro-level data (BLS, FRED metro series)
-- **How:** HUD website quarterly download — free CSV
-- **Cadence:** Quarterly update, but changes rarely affect major metros
+| Tool | Job | Not its job |
+|---|---|---|
+| Airflow | Scheduling, dependencies, retries, backfills for batch work | Moving data itself; streaming |
+| Python clients | Small API/CSV pulls (FRED, Census, BLS, Zillow) | Heavy transforms |
+| Spark (batch) | Large files: HMDA (tens of millions of rows/yr), GDELT history | Small API pulls |
+| Kafka | Durable, replayable buffer for continuous events | Long-term storage (Delta is the source of truth) |
+| Spark Structured Streaming | Kafka → Bronze Delta, dedupe, light parsing | Business logic |
+| dbt | All business modeling Silver/Gold, tests, docs | Raw ingestion |
+| DuckDB | Local warehouse / query engine over Delta | — |
+| Evidence | Dashboard | — |
 
 ---
 
-## 5. Data Model & Schema Design
+## 5. Data Sources & Volumes
 
-### 5.1 Bronze Layer (Raw — No Transforms)
+### 5.1 Summary
+
+| Source | Grain | Approx. volume | Cadence | Auth | Ingest via |
+|---|---|---|---|---|---|
+| Zillow ZHVI (home values) | zip × month | ~26k zips × ~310 mo ≈ **8M rows** | Monthly | None | Python + Airflow |
+| Zillow ZORI (rents) | zip × month | several thousand zips × ~130 mo ≈ **<1M rows** | Monthly | None | Python + Airflow |
+| FRED macro | series × date | **<10k rows** | Weekly | Free API key | Python + Airflow |
+| Census ACS 5-yr | ZCTA × year | ~33k × years ≈ **~150k rows** | Annual (Dec) | Free API key | Python + Airflow |
+| BLS CES metro employment | metro × month | ~400 metros × months ≈ **~100k rows** | Monthly | Free API key | Python + Airflow |
+| HUD USPS crosswalks | zip↔CBSA, tract↔zip | **~100k rows** | Quarterly | Free account | Python + Airflow (dbt seed for a pinned copy) |
+| **HMDA** loan-level | loan application | **~10–25M rows/yr, several GB/yr**; 2018+ ≈ 100M+ rows | Annual (+ quarterly for large filers) | None | **Spark batch** |
+| **GDELT** GKG / events | article/event | Billions of rows total; filtered to US housing themes | Every 15 min | None | **Spark batch** (history) + **Kafka** (live) |
+| **Reddit** | post/comment | ~1–10k posts/week across target subreddits | Continuous (polled) | Free OAuth app | **Kafka** producer |
+| **RSS news** | article (headline, snippet, link) | ~1–5k items/week | Continuous (polled) | None | **Kafka** producer |
+| Redfin (stretch) | zip × month/week | ~GBs | Weekly/monthly | None | Spark or Python |
+
+**Totals:** core housing data ~10M rows (<1 GB). With HMDA + GDELT the platform reaches **100M+ rows / tens of GB**, which is where Spark is justified.
+
+### 5.2 Source Notes
+
+**Zillow ZORI / ZHVI** — Direct CSV downloads from Zillow Research. Wide format (one column per month) → melted to long in ingestion. Verify current file names and zip coverage on first download; record them in `config/sources.yaml`.
+
+**FRED** — Already implemented in `ingestion/fred_client.py`. Final series list (reconciles code and v2 doc):
+
+| Series | Meaning | Use |
+|---|---|---|
+| `MORTGAGE30US` | 30-yr fixed mortgage rate | Investor financing cost |
+| `CUUR0000SAH` | CPI: Shelter | National rent inflation benchmark |
+| `HOUST` | Housing starts | Supply signal |
+| `UNRATE` | Unemployment rate | Macro health |
+| `CSUSHPISA` | Case-Shiller national HPI | Price context |
+| `MSPUS` | Median sale price of houses sold | Price context |
+
+**Census ACS (5-year, ZCTA)** — `B19013_001E` median household income, `B01003_001E` population, `B25003_001E` occupied units, `B25003_003E` renter-occupied units, `B23025_005E` unemployed, `B25064_001E` median gross rent (cross-check vs ZORI). Note ZCTAs ≈ zips but are not identical — documented as a known approximation.
+
+**BLS CES (State & Metro Area Employment)** — Monthly total nonfarm employment by metro via the BLS Public API v2 (free registration key; daily query and series-per-query limits apply, so batch series IDs per request). Replaces QCEW as primary because it's monthly and more timely; QCEW remains an optional cross-check.
+
+**HUD USPS crosswalks** — Two files: ZIP→CBSA (connects zip data to metro data) and TRACT→ZIP (needed because **HMDA is reported at census-tract level, not zip**). Use the `res_ratio` (residential address share) to allocate tract metrics to zips.
+
+**HMDA (CFPB)** — Every US mortgage application. Key fields: `census_tract`, `action_taken`, `loan_purpose`, `occupancy_type` (3 = investment property), `loan_amount`, `property_value`, `derived_dwelling_category`, `activity_year`. Produces **investor purchase share**, loan volume trends and median loan size by zip — strong signals of investor competition.
+
+**GDELT** — Global news event and Global Knowledge Graph (GKG) data, updated every 15 minutes, history back to 2015. Filter to US locations and housing-related GKG themes (e.g. housing prices, rent, eviction). Gives a high-volume, structured news signal with geographic coordinates.
+
+**Reddit** — Official Reddit API via PRAW (OAuth app, free tier has rate limits; review the current Data API terms before building — non-commercial personal project use). Target subreddits: r/realestateinvesting, r/landlord, r/RealEstate, r/FirstTimeHomeBuyer, plus city subreddits for tracked metros (mapping in `config/subreddit_metro_map.yaml`). Store post ID, subreddit, title, body, score, created time, permalink — not usernames.
+
+**RSS news** — Ingest headline, snippet, publish date and link from feeds (housing sections of news outlets, Zillow/Redfin/Realtor.com research blogs, Google News RSS queries per metro). **Do not scrape full article bodies from sites whose terms forbid it or that are paywalled**; the LLM works from headlines/snippets plus Reddit text and GDELT metadata. Respect `robots.txt` and set a descriptive user agent.
+
+---
+
+## 6. Storage & Data Model
+
+### 6.1 Storage Layout
+
+```
+SeaweedFS (local, S3-compatible)  ── later: GCS
+  s3://rpof-raw/                      # immutable landing zone (files exactly as downloaded)
+    zillow/{zori|zhvi}/YYYY/MM/*.csv
+    fred/YYYY/MM/DD/*.json
+    census/acs5/YYYY/*.json
+    bls/ces/YYYY/MM/*.json
+    hud/crosswalk/YYYY_QN/*.xlsx
+    hmda/YYYY/*.csv.gz
+    gdelt/gkg/YYYY/MM/DD/*.zip
+  s3://rpof-lake/                     # Delta tables
+    bronze/<table>/
+    silver_spark/<table>/              # Spark-produced aggregates (HMDA, GDELT)
+  ./data/rpof.duckdb                  # dbt Silver/Gold models (local warehouse)
+```
+
+- **Bronze** = Delta tables on SeaweedFS, append/merge only, schema-on-read, with `ingested_at`, `source_file`, `run_id` on every row.
+- **Silver/Gold** = dbt models. Locally materialized in DuckDB, reading Bronze via DuckDB's `delta_scan` over S3 (SeaweedFS). In the cloud phase the same models run on BigQuery.
+- Spark writes heavy aggregates (HMDA, GDELT) to `silver_spark/` Delta tables, which dbt treats as sources.
+
+### 6.2 Bronze Tables
+
+| Table | Key | Notes |
+|---|---|---|
+| `bronze.zori_raw` | (region_name, month) | melted long format |
+| `bronze.zhvi_raw` | (region_name, month) | melted long format |
+| `bronze.fred_series_raw` | (series_id, date) | already shaped by `fred_client.py` |
+| `bronze.census_acs_raw` | (zcta, variable, vintage_year) | long format |
+| `bronze.bls_ces_raw` | (series_id, period) | |
+| `bronze.hud_crosswalk_raw` | (zip, cbsa / tract, vintage) | |
+| `bronze.hmda_lar_raw` | (activity_year, row hash) | partitioned by `activity_year`, `state_code` |
+| `bronze.gdelt_gkg_raw` | (gkg_record_id) | partitioned by date; pre-filtered to US |
+| `bronze.news_events_raw` | (source, source_id) | from Kafka; RSS + Reddit + live GDELT |
+
+### 6.3 Silver Models (dbt unless noted)
+
+| Model | Grain | Built by |
+|---|---|---|
+| `silver_rent_index` | zip × month | dbt |
+| `silver_home_values` | zip × month (+ cbsa_code) | dbt |
+| `silver_macro_indicators` | date (pivoted FRED, forward-filled to daily/monthly) | dbt |
+| `silver_zip_demographics` | zip × vintage_year | dbt |
+| `silver_metro_job_growth` | cbsa × month | dbt |
+| `silver_zip_cbsa_xwalk` / `silver_tract_zip_xwalk` | mapping | dbt |
+| `silver_zip_lending_activity` | zip × year (investor share, loan counts, median loan) | **Spark** → dbt source |
+| `silver_news_items` | item (deduped, metro-tagged, language-filtered) | dbt over Bronze |
+| `silver_gdelt_metro_tone` | cbsa × week (article count, avg tone) | **Spark** → dbt source |
+
+### 6.4 Gold Models
+
+**`gold_zip_investment_metrics`** — one row per zip per month (logic as in v2.0 §7.3), extended with:
 
 ```sql
--- bronze.zori_raw
--- Wide-format CSV ingested as-is, one row per zip per download run
-CREATE TABLE bronze.zori_raw (
-    region_name         STRING,     -- zip code
-    region_id           STRING,     -- Zillow internal ID
-    msa_name            STRING,     -- metro area name
-    state_name          STRING,
-    month               DATE,       -- after melting from wide to long
-    rent_index          FLOAT,
-    ingested_at         TIMESTAMP,
-    source_file         STRING      -- filename of the CSV that produced this row
-);
-
--- bronze.zhvi_raw
-CREATE TABLE bronze.zhvi_raw (
-    region_name         STRING,     -- zip code
-    region_id           STRING,
-    metro               STRING,
-    state_name          STRING,
-    month               DATE,       -- after melting wide to long
-    home_value_index    FLOAT,
-    ingested_at         TIMESTAMP,
-    source_file         STRING
-);
-
--- bronze.fred_series_raw  ← already exists ✅
--- bronze.census_acs_raw   ← schema defined in Section 4.4
-
--- bronze.bls_metro_raw
-CREATE TABLE bronze.bls_metro_raw (
-    msa_code            STRING,
-    msa_name            STRING,
-    reference_quarter   STRING,     -- e.g. '2024-Q3'
-    total_employment    INT,
-    yoy_employment_change INT,
-    yoy_pct_change      FLOAT,
-    ingested_at         TIMESTAMP
-);
+    -- Lending / investor activity (HMDA, annual, joined on latest available year)
+    investor_purchase_share     FLOAT,   -- % of home-purchase originations with occupancy_type = investment
+    purchase_loan_count_yoy     FLOAT,   -- % change in purchase originations
+    -- Freshness
+    lending_data_vintage        INT
 ```
 
-### 5.2 Silver Layer (Cleaned, Typed, Deduplicated)
+**`gold_zip_opportunity_score`** — one row per zip (latest month); schema unchanged from v2.0 plus optional `score_investor_competition` (see §7.5).
+
+**`gold_metro_news_outlook`** — one row per metro per week:
 
 ```sql
--- silver.rent_index
--- One row per zip per month. Clean types, no duplicates.
-CREATE TABLE silver.rent_index (
-    zip_code            STRING,
+CREATE TABLE gold.metro_news_outlook (
+    cbsa_code           STRING,
     metro_name          STRING,
-    state               STRING,
-    month               DATE,
-    median_rent         FLOAT,       -- ZORI value in dollars
-    updated_at          TIMESTAMP
-);
-
--- silver.home_values
--- One row per zip per month.
-CREATE TABLE silver.home_values (
-    zip_code            STRING,
-    metro_name          STRING,
-    state               STRING,
-    cbsa_code           STRING,      -- joined from HUD crosswalk
-    month               DATE,
-    median_home_value   FLOAT,       -- ZHVI value in dollars
-    updated_at          TIMESTAMP
-);
-
--- silver.mortgage_rates  ← already exists ✅
-
--- silver.zip_demographics
--- One row per zip. Annual cadence.
-CREATE TABLE silver.zip_demographics (
-    zip_code                STRING,
-    cbsa_code               STRING,
-    median_household_income FLOAT,
-    total_population        INT,
-    renter_occupied_units   INT,
-    total_occupied_units    INT,
-    renter_ratio            FLOAT,   -- renter_occupied / total_occupied
-    vintage_year            INT
-);
-
--- silver.metro_job_growth
--- One row per MSA per quarter.
-CREATE TABLE silver.metro_job_growth (
-    msa_code                STRING,
-    msa_name                STRING,
-    reference_quarter       DATE,
-    total_employment        INT,
-    yoy_employment_change   INT,
-    yoy_pct_change          FLOAT
-);
-```
-
-### 5.3 Gold Layer (Investment Analytics)
-
-```sql
--- gold.zip_investment_metrics
--- The core analytical table. One row per zip per month.
--- Every metric needed to evaluate a zip for rental investment.
-CREATE TABLE gold.zip_investment_metrics (
-    zip_code                    STRING,
-    metro_name                  STRING,
-    state                       STRING,
-    cbsa_code                   STRING,
-    snapshot_month              DATE,
-
-    -- Rent metrics (from ZORI)
-    median_rent                 FLOAT,   -- current monthly rent ($)
-    rent_growth_1yr             FLOAT,   -- % change YoY
-    rent_growth_3yr             FLOAT,   -- % change over 3 years
-    annual_gross_rent           FLOAT,   -- median_rent × 12
-
-    -- Home value metrics (from ZHVI)
-    median_home_value           FLOAT,   -- current home value ($)
-    home_value_growth_1yr       FLOAT,   -- % change YoY
-
-    -- Core investment ratios
-    price_to_rent_ratio         FLOAT,   -- home_value ÷ annual_gross_rent
-    gross_rental_yield          FLOAT,   -- annual_gross_rent ÷ home_value × 100
-
-    -- Renter demand signals (from Census)
-    median_household_income     FLOAT,
-    renter_ratio                FLOAT,   -- % of occupied units that are rented
-    rent_to_income_ratio        FLOAT,   -- monthly_rent ÷ (income ÷ 12)
-                                         -- below 0.30 = affordable for renters
-
-    -- Supply/demand context
-    total_population            INT,
-    yoy_job_growth_pct          FLOAT,   -- from BLS (metro level, joined by CBSA)
-
-    -- Macro context
-    mortgage_rate_30yr          FLOAT,   -- from FRED (national)
-
-    -- Data freshness
-    rent_data_vintage           DATE,
-    value_data_vintage          DATE,
-    demographics_vintage        INT
-);
-
--- gold.zip_opportunity_score
--- One row per zip. The final ranked output — what the dashboard shows.
-CREATE TABLE gold.zip_opportunity_score (
-    zip_code                    STRING PRIMARY KEY,
-    metro_name                  STRING,
-    state                       STRING,
-    snapshot_month              DATE,
-
-    -- Raw metrics (carried forward for decomposability)
-    median_rent                 FLOAT,
-    median_home_value           FLOAT,
-    gross_rental_yield          FLOAT,
-    price_to_rent_ratio         FLOAT,
-    rent_growth_1yr             FLOAT,
-    rent_to_income_ratio        FLOAT,
-    renter_ratio                FLOAT,
-    yoy_job_growth_pct          FLOAT,
-
-    -- Normalized sub-scores (0–100 each, higher = better for investor)
-    score_rental_yield          FLOAT,   -- high yield = high score
-    score_rent_growth           FLOAT,   -- high growth = high score
-    score_affordability         FLOAT,   -- low rent-to-income = high score
-                                         -- (sustainable renter demand)
-    score_entry_price           FLOAT,   -- low price-to-rent = high score
-    score_demand_growth         FLOAT,   -- high job growth + renter ratio = high score
-
-    -- Final composite
-    opportunity_score           FLOAT,   -- weighted sum of sub-scores (0–100)
-    opportunity_tier            STRING,  -- 'strong', 'moderate', 'weak'
-    national_rank               INT,     -- rank among all scored zips
-    metro_rank                  INT      -- rank within the zip's metro
+    week_start          DATE,
+    outlook             STRING,      -- 'bullish' | 'neutral' | 'bearish'
+    confidence          STRING,      -- 'low' | 'medium' | 'high'
+    summary             STRING,      -- 3–5 sentence plain-English outlook
+    key_themes          ARRAY<STRING>,
+    risks               ARRAY<STRING>,
+    cited_item_ids      ARRAY<STRING>,  -- FK → silver_news_items, for traceability
+    item_count          INT,
+    gdelt_avg_tone      FLOAT,       -- quantitative cross-check
+    model_id            STRING,      -- which LLM produced it
+    prompt_version      STRING,
+    generated_at        TIMESTAMP
 );
 ```
 
 ---
 
-## 6. Opportunity Score Design
+## 7. Opportunity Score Design
 
-The opportunity score is the heart of the project. It must be explainable — every zip's score should be fully decomposable into its five sub-scores, and each sub-score should trace back to a single raw metric.
+The score must be **explainable**: every zip's score decomposes into sub-scores, each tracing back to one raw metric.
 
-### 6.1 Sub-Score Definitions
+### 7.1 Sub-Scores (v1 — ships in Phase 3)
 
-Each sub-score is computed by ranking the metric across all zips nationally and scaling to 0–100.
-
-| Sub-Score | Raw Metric | Logic | Weight |
+| Sub-Score | Raw Metric | Direction | Weight |
 |---|---|---|---|
-| `score_rental_yield` | `gross_rental_yield` | Higher yield = higher score. Rentals yielding 8%+ score near 100. | 30% |
-| `score_rent_growth` | `rent_growth_1yr` | Higher YoY rent growth = higher score. Captures market momentum. | 25% |
-| `score_affordability` | `rent_to_income_ratio` | Lower ratio = higher score. Ensures renters can actually afford it — vacant units earn nothing. | 20% |
-| `score_entry_price` | `price_to_rent_ratio` | Lower ratio = higher score. Below 15 = favorable entry, above 25 = expensive. | 15% |
-| `score_demand_growth` | `yoy_job_growth_pct` | Higher job growth = higher score. Jobs bring workers who rent. | 10% |
+| `score_rental_yield` | `gross_rental_yield` | higher = better | 30% |
+| `score_rent_growth` | `rent_growth_1yr` | higher = better | 25% |
+| `score_affordability` | `rent_to_income_ratio` | lower = better | 20% |
+| `score_entry_price` | `price_to_rent_ratio` | lower = better | 15% |
+| `score_demand_growth` | `yoy_job_growth_pct` (metro) | higher = better | 10% |
 
-### 6.2 Composite Score Formula
+### 7.2 Normalization
+
+Percentile rank within the current snapshot month, scaled to 0–100 (robust to outliers; "80" = beats 80% of zips). Inverted metrics use `(1 - pct_rank) * 100`.
+
+### 7.3 Composite & Tiers
 
 ```python
 opportunity_score = (
-    score_rental_yield   * 0.30 +
-    score_rent_growth    * 0.25 +
-    score_affordability  * 0.20 +
-    score_entry_price    * 0.15 +
-    score_demand_growth  * 0.10
+    0.30 * score_rental_yield
+  + 0.25 * score_rent_growth
+  + 0.20 * score_affordability
+  + 0.15 * score_entry_price
+  + 0.10 * score_demand_growth
 )
+tier = "strong" if score >= 70 else "moderate" if score >= 45 else "weak"
 ```
 
-### 6.3 Opportunity Tier Thresholds
+Weights live in `config/scoring.yaml` (not hard-coded) so they are versioned and can be tuned without code changes. Each scoring run records `weights_version`.
 
-```python
-def assign_tier(score):
-    if score >= 70: return 'strong'
-    if score >= 45: return 'moderate'
-    return 'weak'
-```
+### 7.4 Missing Data Rule
 
-### 6.4 Why These Weights
+A zip is scored only if yield, rent growth and affordability are all present. If `yoy_job_growth_pct` is missing (zip not in a CBSA), its weight is redistributed proportionally and the row is flagged `partial_score = true`.
 
-Rental yield is weighted highest (30%) because it directly determines cash flow. Rent growth (25%) captures appreciation potential. Renter affordability (20%) is a demand sustainability signal — a market where renters spend 50% of income on rent will see high turnover and vacancy. Entry price (15%) matters but is already partially captured by yield. Job growth (10%) is a leading indicator but is only available at metro level, not zip, so its precision is lower.
+### 7.5 Score v2 Candidates (after Phases 5–6)
 
-These weights are intentionally documented and defensible. In an interview you can say "I chose these weights because X" — that's a more interesting conversation than a black box model.
+| Candidate | Source | Direction | Notes |
+|---|---|---|---|
+| `score_investor_competition` | HMDA investor share | **lower** = better (less competition) | Debatable direction — high share can also signal a proven rental market. Evaluate before adding. |
+| `score_market_sentiment` | `gold_metro_news_outlook` + GDELT tone | more positive = better | Add only after ≥3 months of history; cap weight at 5–10%. |
 
-### 6.5 Normalization Method
-
-Each sub-score uses percentile ranking within the current snapshot month:
-
-```python
-# Example for rental yield
-df['score_rental_yield'] = (
-    df['gross_rental_yield']
-    .rank(pct=True)   # returns 0.0 to 1.0
-    * 100             # scale to 0–100
-)
-```
-
-Percentile ranking is robust to outliers (a 25% yield in an unusual zip doesn't distort everyone else's score) and produces intuitive outputs (a score of 80 means this zip beats 80% of all zips on this metric).
+Any v2 change ships as a new `weights_version` with a before/after comparison of the top 50.
 
 ---
 
-## 7. Pipeline Design
+## 8. Batch Pipeline Design
 
-### 7.1 Airflow DAG Structure
+### 8.1 Airflow DAGs
+
+| DAG | Schedule | Tasks |
+|---|---|---|
+| `ingest_fred` | Weekly (Mon) | fetch → land raw JSON → GE validate → merge to Bronze |
+| `ingest_zillow` | Monthly (day 10) | download ZORI/ZHVI → land → melt → GE → merge |
+| `ingest_census_acs` | Annual (Jan) + manual | fetch variables by ZCTA → land → GE → merge |
+| `ingest_bls_ces` | Monthly | fetch metro series → land → GE → merge |
+| `ingest_hud_crosswalk` | Quarterly | download → land → merge |
+| `spark_hmda` | Annual + manual backfill | download year files → `spark-submit jobs/hmda_lar.py` → Bronze + `silver_spark.zip_lending_activity` |
+| `spark_gdelt_backfill` | Manual / monthly | Spark job filters GKG history → `silver_spark.gdelt_metro_tone` |
+| `dbt_build` | Triggered by upstream datasets | `dbt build --select state:modified+` (or by tag) |
+| `compute_scores` | After `dbt_build` (monthly) | `scoring/score.py` → Gold |
+| `llm_metro_outlook` | Weekly (Sun) | see §9.4 |
+| `data_quality_report` | Daily | freshness checks, GE summary, alert on failure |
+
+Use **Airflow Datasets/Assets** (data-aware scheduling) so `dbt_build` runs when its upstream Bronze tables update, instead of fixed-time chaining.
+
+### 8.2 Ingestion Pattern (all Python clients)
 
 ```
-rental-opportunity-finder/
-├── dags/
-│   ├── ingest_zillow_monthly.py        # downloads ZORI + ZHVI CSVs
-│   ├── ingest_fred_weekly.py           # ← already built ✅
-│   ├── ingest_census_annual.py
-│   ├── ingest_bls_quarterly.py
-│   ├── run_dbt_silver.py
-│   ├── run_dbt_gold.py
-│   ├── compute_opportunity_scores.py   # runs score.py, writes to gold
-│   └── data_quality_checks.py
-├── ingestion/
-│   ├── fred_client.py                  # ← already built ✅
-│   ├── zillow_csv_client.py            # downloads + melts Zillow CSVs
-│   ├── census_client.py
-│   └── bls_client.py
-├── scoring/
-│   └── score.py                        # opportunity score computation
+1. fetch        → API/CSV → bytes
+2. land_raw     → s3://rpof-raw/<source>/<partition>/<file>   (immutable, never overwritten)
+3. validate     → Great Expectations suite for the source
+4. load_bronze  → deltalake MERGE on natural key (idempotent; safe to re-run/backfill)
+5. audit        → row counts, run_id, duration → meta.ingest_audit
+```
+
+Clients take `start_date`/`end_date` or a partition key so Airflow backfills work naturally. Secrets come from `.env` locally (Secret Manager in cloud).
+
+### 8.3 Spark Batch Jobs
+
+**`jobs/hmda_lar.py`**
+1. Read yearly LAR CSVs from `rpof-raw/hmda/` with an explicit schema.
+2. Filter: `action_taken = 1` (originated), `loan_purpose = 1` (home purchase), 1–4 unit dwellings.
+3. Write `bronze.hmda_lar_raw` (Delta, partitioned by `activity_year`, `state_code`).
+4. Aggregate tract × year: total purchases, investor purchases (`occupancy_type = 3`), median loan amount.
+5. Join tract→zip crosswalk, allocate by `res_ratio`, write `silver_spark.zip_lending_activity`.
+
+**`jobs/gdelt_gkg_filter.py`**
+1. Read GKG files for a date range.
+2. Filter to US locations + housing themes; extract location → CBSA (lat/long → county FIPS → CBSA via crosswalk).
+3. Aggregate cbsa × week: article count, average tone, top themes → `silver_spark.gdelt_metro_tone`.
+
+Spark runs locally in Docker (master + 1–2 workers) with `delta-spark`; Airflow submits via `SparkSubmitOperator`. Jobs are written to be portable (no local-path assumptions) so they could later run on Dataproc Serverless or Databricks unchanged.
+
+---
+
+## 9. Streaming News & Sentiment Pipeline
+
+### 9.1 Flow
+
+```
+Producers (Python, one container each)          Kafka topics (Avro, Schema Registry)
+  rss_producer      poll feeds every 15 min  ─►  news.rss.v1
+  reddit_producer   poll subreddits /5 min   ─►  news.reddit.v1
+  gdelt_producer    fetch 15-min GKG update  ─►  news.gdelt.v1
+                                                      │
+                                                      ▼
+  Spark Structured Streaming  (jobs/stream_news_to_bronze.py)
+    - read all news.* topics
+    - deserialize Avro, normalize to common schema
+    - watermark + dedupe on (source, source_id)
+    - write bronze.news_events_raw (Delta, checkpointed, exactly-once sink)
+                                                      │
+                                                      ▼
+  dbt: silver_news_items  (language filter, URL canonicalization, metro tagging)
+                                                      │
+                                                      ▼
+  Airflow weekly: llm_metro_outlook  ─►  gold_metro_news_outlook
+```
+
+### 9.2 Common Event Schema (Avro, `news_item.avsc`)
+
+`source` (rss|reddit|gdelt), `source_id`, `url`, `title`, `body_snippet`, `published_at`, `fetched_at`, `subreddit` (nullable), `feed_name` (nullable), `geo_hint` (nullable: lat/long or place string), `engagement` (nullable: Reddit score/comments).
+
+Schema evolution is backward-compatible only (enforced by Schema Registry compatibility mode). Topic names carry a version suffix.
+
+### 9.3 Metro Tagging
+
+Applied in `silver_news_items`, in priority order:
+1. Reddit city subreddit → CBSA via `subreddit_metro_map.yaml`.
+2. GDELT location coordinates → county → CBSA.
+3. Keyword match of title/snippet against a seed of metro + principal city names (`seeds/metro_aliases.csv`).
+4. Otherwise tagged `national`.
+
+### 9.4 LLM Metro Outlook (weekly)
+
+- **Scope:** top ~20 metros by number of scored zips (configurable), plus a `national` summary.
+- **Input per metro:** last 7 days of `silver_news_items` for that metro (titles, snippets, Reddit text, capped and ranked by engagement/recency), the metro's GDELT tone trend, and its latest Gold metrics (median rent growth, yield) as context.
+- **API usage:**
+  - **Message Batches API** — asynchronous, 50% cheaper; fine for a weekly job.
+  - **Structured outputs** — response conforms to a JSON schema matching `gold_metro_news_outlook`.
+  - **Prompt caching** — a stable system prompt (instructions + output schema) shared across all metros.
+  - Model configured in `config/llm.yaml`; default `claude-opus-5-5`, swappable to a cheaper model after comparing output quality.
+- **Guardrails:** the prompt requires every claim to cite `cited_item_ids` from the input; a post-check drops any cited ID not present in the input. `stop_reason` is checked (e.g. `refusal`, `max_tokens`) and failed metros are retried or skipped, never written as empty rows.
+- **Traceability:** `model_id`, `prompt_version` and the input item IDs are stored with each row. Prompts live in `llm/prompts/` under version control.
+- **Evaluation:** a small hand-labeled set (~20 metro-weeks) in `tests/llm_eval/` to compare prompt or model changes before switching.
+
+---
+
+## 10. Data Quality, Lineage & Observability
+
+### 10.1 Data Quality — Two Layers
+
+| Layer | Tool | Examples |
+|---|---|---|
+| Ingestion (before Bronze) | Great Expectations | Zillow: zip matches `^\d{5}$`, values > 0, month columns parse; FRED: dates monotonic; HMDA: required columns present, row count within ±30% of prior year |
+| Modeling (Silver/Gold) | dbt tests (+ `dbt-expectations` package) | `unique`/`not_null` on keys; `gross_rental_yield` between 0 and 30; `price_to_rent_ratio` between 5 and 60; scores between 0 and 100; no future months; national_rank contiguous |
+| Freshness | dbt source freshness + Grafana | Bronze tables older than 2× expected cadence → alert |
+
+Failures stop downstream tasks (no silent passes) and send an alert (Slack webhook or email via Airflow callbacks).
+
+### 10.2 Lineage
+
+- **OpenLineage** emitted by Airflow (provider), Spark (OpenLineage listener) and dbt (`dbt-ol` wrapper).
+- **Marquez** (Docker) stores and visualizes end-to-end lineage: raw file → Bronze → Silver → Gold → dashboard.
+
+### 10.3 Monitoring
+
+- **Prometheus** scrapes Airflow (StatsD exporter), Kafka (JMX/Kafka exporter: consumer lag), Spark and SeaweedFS metrics.
+- **Grafana** dashboards: DAG success/duration, Kafka lag per topic, Bronze freshness, LLM job token usage and cost per run.
+
+---
+
+## 11. Local Platform (Docker Compose)
+
+### 11.1 Services and Profiles
+
+Docker Compose **profiles** keep laptop resource use manageable — run only what the current phase needs.
+
+| Profile | Services | Approx. RAM |
+|---|---|---|
+| `core` | SeaweedFS, Postgres (Airflow metadata), Airflow (api-server/webserver, scheduler, worker/triggerer) | ~4 GB |
+| `spark` | Spark master + 1–2 workers | +2–4 GB |
+| `streaming` | Kafka (KRaft, single broker), Schema Registry, Kafka UI, producers, streaming job | +2–3 GB |
+| `observability` | Prometheus, Grafana, Marquez (+ its Postgres) | +1–2 GB |
+
+Running everything at once wants **~12–16 GB RAM**. Evidence.dev and dbt run on the host (or in a `tools` container).
+
+### 11.2 Makefile Targets
+
+```
+make up            # core profile
+make up-all        # all profiles
+make down
+make test          # pytest (unit) 
+make dbt-build     # dbt build against local DuckDB
+make lint          # black --check, flake8, sqlfluff
+make backfill-fred START=2019-01-01
+make dashboard     # evidence dev server
+```
+
+### 11.3 CI (GitHub Actions)
+
+On every PR: `black --check`, `flake8`, `sqlfluff lint`, `pytest`, `dbt build` against an ephemeral DuckDB with fixture seeds, and `terraform fmt -check` + `terraform validate` (once `infra/` exists). No cloud credentials needed for CI in the local-first phases.
+
+---
+
+## 12. Cloud Deployment & IAM (Deferred)
+
+Designed now, built in Phase 8 only if/when a public deployment is wanted. Everything is Terraform-managed.
+
+### 12.1 Resources
+
+| Resource | Purpose |
+|---|---|
+| `google_billing_budget` | **First resource created.** Alerts at 50/90/100% of a small monthly budget (e.g. $25) |
+| GCS buckets | `rpof-raw`, `rpof-lake`, `rpof-tfstate` (remote state, versioned) |
+| BigQuery datasets | `bronze_ext` (BigLake/external over Delta), `silver`, `gold` |
+| Secret Manager | FRED, Census, BLS, Reddit, Anthropic keys |
+| Artifact Registry | Container images for producers/jobs |
+| Compute Engine (spot, scheduled) | Single VM running the Docker Compose stack when needed |
+| Cloud Run / static hosting | Evidence dashboard (static build) |
+
+### 12.2 IAM — Least Privilege
+
+| Service account | Roles (scoped to specific resources) |
+|---|---|
+| `sa-ingest` | `storage.objectCreator` on `rpof-raw`; `storage.objectAdmin` on `rpof-lake`; `secretmanager.secretAccessor` on ingest secrets only |
+| `sa-spark` | `storage.objectViewer` on `rpof-raw`; `storage.objectAdmin` on `rpof-lake` |
+| `sa-dbt` | `bigquery.dataEditor` on `silver`/`gold`; `bigquery.dataViewer` on `bronze_ext`; `bigquery.jobUser` (project) |
+| `sa-llm` | `bigquery.dataViewer` on `silver`; `bigquery.dataEditor` on `gold`; secret accessor on the Anthropic key only |
+| `sa-dashboard` | `bigquery.dataViewer` on `gold` only |
+| `sa-github-ci` | Deploy roles only; authenticated via **Workload Identity Federation** — no service-account keys anywhere |
+
+Terraform modules: `infra/modules/{budget,storage,bigquery,iam,secrets,compute}`, one `envs/prod` root. Human access via a group binding, not individual users.
+
+### 12.3 Cloud Cost Guardrails
+
+No Cloud Composer, no managed Kafka, no always-on Dataproc/Databricks clusters, no GKE. VM is spot + start/stop schedule. Budget alert in place before any other resource.
+
+---
+
+## 13. Repo Structure
+
+```
+housing-platform/
+├── ingestion/                 # Python clients: fred, zillow, census, bls, hud
+│   ├── fred_client.py         # ✅ exists
+│   ├── storage.py             # S3/SeaweedFS/GCS wrapper (boto3/fsspec)
+│   └── bronze_loader.py       # deltalake MERGE helpers
+├── streaming/
+│   ├── producers/             # rss_producer.py, reddit_producer.py, gdelt_producer.py
+│   └── schemas/               # Avro schemas (news_item.avsc)
+├── jobs/                      # Spark jobs: hmda_lar.py, gdelt_gkg_filter.py, stream_news_to_bronze.py
+├── dags/                      # Airflow DAGs
 ├── dbt/
-│   ├── models/
-│   │   ├── staging/
-│   │   │   ├── stg_zori.sql
-│   │   │   ├── stg_zhvi.sql
-│   │   │   ├── stg_census_acs.sql
-│   │   │   └── stg_bls_metro.sql
-│   │   ├── silver/
-│   │   │   ├── silver_rent_index.sql
-│   │   │   ├── silver_home_values.sql
-│   │   │   ├── silver_zip_demographics.sql
-│   │   │   └── silver_metro_job_growth.sql
-│   │   └── gold/
-│   │       ├── gold_zip_investment_metrics.sql
-│   │       └── gold_zip_opportunity_score.sql
-│   └── tests/
-│       ├── assert_yield_positive.sql
-│       ├── assert_score_between_0_100.sql
-│       ├── assert_rent_not_null.sql
-│       └── unique_zip_snapshot.sql
-├── config/
-│   └── zillow_files.yaml              # list of CSV filenames to download
-└── tests/
-    ├── test_zillow_client.py
-    ├── test_census_client.py
-    └── test_score.py
-```
-
-### 7.2 Zillow CSV Ingest Pattern
-
-Zillow CSVs are wide format — one column per month. The ingest script melts them to long format before writing to Bronze.
-
-```
-Task 1: download_zillow_csv
-  → requests.get(ZILLOW_ZORI_URL) → save to GCS
-    gs://rental-opportunity-raw/zillow/zori/{YYYY}/{MM}/zori.csv
-
-Task 2: melt_and_validate
-  → pd.melt(df, id_vars=['RegionName','Metro','StateName'],
-             var_name='month', value_name='rent_index')
-  → filter month columns only (format: YYYY-MM-DD)
-  → validate: non-null rent_index > 0, zip format valid
-
-Task 3: load_to_bronze_delta
-  → MERGE INTO bronze.zori_raw ON (region_name, month)
-  → idempotent — safe to re-run without duplicating history
-
-Task 4: log_ingest_metadata
-  → rows ingested, source file, run timestamp → audit table
-```
-
-### 7.3 dbt Gold Model Logic
-
-The key transformation in `gold_zip_investment_metrics.sql`:
-
-```sql
-WITH rent AS (
-    SELECT
-        zip_code,
-        metro_name,
-        state,
-        month AS snapshot_month,
-        median_rent,
-        -- YoY rent growth
-        (median_rent - LAG(median_rent, 12) OVER (
-            PARTITION BY zip_code ORDER BY month
-        )) / NULLIF(LAG(median_rent, 12) OVER (
-            PARTITION BY zip_code ORDER BY month
-        ), 0) * 100 AS rent_growth_1yr,
-        -- 3yr rent growth
-        (median_rent - LAG(median_rent, 36) OVER (
-            PARTITION BY zip_code ORDER BY month
-        )) / NULLIF(LAG(median_rent, 36) OVER (
-            PARTITION BY zip_code ORDER BY month
-        ), 0) * 100 AS rent_growth_3yr
-    FROM {{ ref('silver_rent_index') }}
-),
-
-values AS (
-    SELECT
-        zip_code,
-        cbsa_code,
-        month,
-        median_home_value,
-        (median_home_value - LAG(median_home_value, 12) OVER (
-            PARTITION BY zip_code ORDER BY month
-        )) / NULLIF(LAG(median_home_value, 12) OVER (
-            PARTITION BY zip_code ORDER BY month
-        ), 0) * 100 AS home_value_growth_1yr
-    FROM {{ ref('silver_home_values') }}
-)
-
-SELECT
-    r.zip_code,
-    r.metro_name,
-    r.state,
-    v.cbsa_code,
-    r.snapshot_month,
-    r.median_rent,
-    r.rent_growth_1yr,
-    r.rent_growth_3yr,
-    r.median_rent * 12                              AS annual_gross_rent,
-    v.median_home_value,
-    v.home_value_growth_1yr,
-    v.median_home_value / NULLIF(r.median_rent * 12, 0)
-                                                    AS price_to_rent_ratio,
-    (r.median_rent * 12) / NULLIF(v.median_home_value, 0) * 100
-                                                    AS gross_rental_yield,
-    d.median_household_income,
-    d.renter_ratio,
-    r.median_rent / NULLIF(d.median_household_income / 12, 0)
-                                                    AS rent_to_income_ratio,
-    d.total_population,
-    j.yoy_pct_change                                AS yoy_job_growth_pct,
-    m.rate_30yr_fixed                               AS mortgage_rate_30yr
-
-FROM rent r
-LEFT JOIN values v
-    ON r.zip_code = v.zip_code AND r.snapshot_month = v.month
-LEFT JOIN {{ ref('silver_zip_demographics') }} d
-    ON r.zip_code = d.zip_code
-LEFT JOIN {{ ref('silver_metro_job_growth') }} j
-    ON v.cbsa_code = j.msa_code
-    AND DATE_TRUNC('quarter', r.snapshot_month) = j.reference_quarter
-LEFT JOIN {{ ref('silver_mortgage_rates') }} m
-    ON r.snapshot_month = m.observation_date
-
-WHERE r.snapshot_month = (SELECT MAX(month) FROM {{ ref('silver_rent_index') }})
-```
-
-### 7.4 Scoring Layer (score.py)
-
-The scoring runs as a Python step after dbt Gold, not inside dbt itself, because it requires cross-zip percentile ranking which is cleaner in pandas than SQL.
-
-```python
-import duckdb
-import pandas as pd
-
-def compute_scores(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    df = conn.execute("""
-        SELECT * FROM gold.zip_investment_metrics
-        WHERE snapshot_month = (SELECT MAX(snapshot_month)
-                                FROM gold.zip_investment_metrics)
-        AND gross_rental_yield IS NOT NULL
-        AND rent_growth_1yr IS NOT NULL
-    """).df()
-
-    # Compute percentile sub-scores (0–100)
-    df['score_rental_yield']  = df['gross_rental_yield'].rank(pct=True) * 100
-    df['score_rent_growth']   = df['rent_growth_1yr'].rank(pct=True) * 100
-    # For affordability: lower rent-to-income is better → invert
-    df['score_affordability'] = (1 - df['rent_to_income_ratio'].rank(pct=True)) * 100
-    # For entry price: lower price-to-rent is better → invert
-    df['score_entry_price']   = (1 - df['price_to_rent_ratio'].rank(pct=True)) * 100
-    df['score_demand_growth'] = df['yoy_job_growth_pct'].rank(pct=True) * 100
-
-    # Composite score
-    df['opportunity_score'] = (
-        df['score_rental_yield']  * 0.30 +
-        df['score_rent_growth']   * 0.25 +
-        df['score_affordability'] * 0.20 +
-        df['score_entry_price']   * 0.15 +
-        df['score_demand_growth'] * 0.10
-    )
-
-    # Tier and rank
-    df['opportunity_tier'] = df['opportunity_score'].apply(
-        lambda s: 'strong' if s >= 70 else ('moderate' if s >= 45 else 'weak')
-    )
-    df['national_rank'] = df['opportunity_score'].rank(ascending=False).astype(int)
-    df['metro_rank'] = df.groupby('metro_name')['opportunity_score'] \
-                         .rank(ascending=False).astype(int)
-
-    return df
-```
-
----
-
-## 8. Dashboard & Serving Layer
-
-### 8.1 Tool: Evidence.dev
-
-Evidence.dev renders dashboards from Markdown + SQL. Each page is a `.md` file with embedded SQL queries. It connects directly to DuckDB locally and Snowflake in production. No separate BI server needed.
-
-### 8.2 Dashboard Pages
-
-**Page 1 — National Opportunity Map** *(main landing page)*
-
-The hero view. A national choropleth map of zip codes colored by `opportunity_score`. Green = strong opportunity, red = weak.
-
-- Filter sidebar: state, metro, min gross yield, max home value, min rent growth
-- Top 50 table below the map: ranked list of best zip codes nationally
-- Metric callouts: current 30yr mortgage rate, national median rent YoY change
-- Source: `gold.zip_opportunity_score`
-
-**Page 2 — Zip Deep-Dive**
-
-User selects a zip code. Full breakdown of that zip's scores.
-
-- Score decomposition bar chart: shows all 5 sub-scores and the composite
-- Rent trend line chart: ZORI history for this zip (going back to 2015)
-- Home value trend line chart: ZHVI history
-- Key stats table: yield, price-to-rent, rent growth, rent-to-income, job growth
-- Context: where does this zip rank nationally and within its metro?
-- Source: `gold.zip_investment_metrics` (full history) + `gold.zip_opportunity_score`
-
-**Page 3 — Metro Comparison**
-
-Compare two metros head-to-head.
-
-- Side-by-side: median rent, median home value, avg yield, avg score
-- Distribution chart: histogram of opportunity scores within each metro
-- Top 10 zip codes per metro ranked by score
-- Source: `gold.zip_opportunity_score` grouped by metro
-
-**Page 4 — Custom Screener**
-
-The power-user tool. Filter to your personal criteria.
-
-- Inputs: max home value ($), min gross yield (%), max price-to-rent ratio, min rent growth (%), state/metro filter
-- Output: sorted table of qualifying zips with all metrics
-- Export to CSV button
-- Source: `gold.zip_opportunity_score`
-
-### 8.3 Key Dashboard Design Principle
-
-Every number on the dashboard traces back to a raw data source. The score decomposition chart on Page 2 is critical — it makes the tool trustworthy rather than magical. An investor should be able to look at a zip, see it scores 82 overall, see that 78 of that comes from yield and 91 from rent growth but only 45 from renter affordability, and make an informed decision. That explainability is what separates this from a black box.
-
----
-
-## 9. Infrastructure & DevOps
-
-### 9.1 Local Development Stack
-
-```
-Docker:
-  - Airflow (via Astro CLI — one command setup)
-  - MinIO (local GCS emulation)
-
-Non-Docker (runs in venv):
-  - DuckDB (embedded, zero config)
-  - dbt (CLI)
-  - Evidence.dev (Node.js dev server)
-  - MLflow (local SQLite backend)
-```
-
-### 9.2 Cloud Stack (Phase 5)
-
-```
-GCP:
-  - GCS: gs://rental-opportunity-raw/     (Bronze file storage)
-  - GCS: gs://rental-opportunity-delta/   (Delta table storage)
-  - Cloud Run: evidence-dashboard          (public URL)
-  - Cloud Scheduler: cron triggers
-
-Snowflake (optional, free trial):
-  - Database: RENTAL_OPPORTUNITY
-    - Schema: BRONZE
-    - Schema: SILVER
-    - Schema: GOLD
-```
-
-### 9.3 Repo Structure
-
-```
-rental-opportunity-finder/
-├── ingestion/              # API + CSV clients
-├── dags/                   # Airflow DAGs
-├── dbt/                    # dbt project
-├── scoring/                # Opportunity score computation
-├── dashboard/              # Evidence.dev pages
-├── tests/                  # Python unit tests
-├── config/                 # metros.yaml, zillow_files.yaml
-├── data/                   # local DuckDB file (gitignored)
-├── logs/                   # Airflow logs (gitignored)
-├── infra/                  # docker-compose.yml
-├── .env.example
-├── .gitignore
+│   ├── models/{staging,silver,gold}/
+│   ├── seeds/                 # metro_aliases.csv, pinned crosswalk
+│   ├── tests/                 # singular tests
+│   └── profiles.yml           # local DuckDB target (env-var driven, no secrets)
+├── scoring/score.py
+├── llm/
+│   ├── summarize.py           # builds batch requests, parses results, writes Gold
+│   └── prompts/               # versioned prompt templates
+├── quality/                   # Great Expectations suites
+├── dashboard/                 # Evidence.dev project
+├── infra/                     # Terraform (Phase 8)
+│   ├── modules/
+│   └── envs/prod/
+├── docker/                    # Dockerfiles + compose.yaml with profiles
+├── observability/             # prometheus.yml, grafana dashboards
+├── config/                    # sources.yaml, scoring.yaml, llm.yaml, subreddit_metro_map.yaml
+├── tests/                     # pytest unit tests (+ llm_eval/)
+├── .github/workflows/ci.yml
 ├── Makefile
-├── requirements.txt
+├── requirements*.txt          # split: base / airflow / spark / dev
 └── README.md
 ```
 
 ---
 
-## 10. Project Phases — Step-by-Step Build Plan
+## 14. Build Plan — Phases
+
+Each phase ends with something that runs end-to-end. Timelines are rough; phases 0–4 form the **MVP**.
+
+### Phase 0 — Cleanup & Platform Foundation
+- [ ] Repo cleanup (see Appendix §18)
+- [ ] `docker/compose.yaml` with `core` profile (SeaweedFS, Postgres, Airflow)
+- [ ] `ingestion/storage.py` + `ingestion/bronze_loader.py`
+- [ ] Commit `dbt/profiles.yml` (DuckDB, env-var driven)
+- [ ] GitHub Actions CI: lint + pytest + `dbt build`
+- [ ] **Done when:** `make up` starts Airflow + SeaweedFS; CI is green
+
+### Phase 1 — FRED End-to-End *(previously "Step 1.2", in progress)*
+- [x] `fred_client.py` + 12 unit tests
+- [ ] Align series list with §5.2 (add `UNRATE`)
+- [ ] `scripts/backfill_fred.py` (5+ years)
+- [ ] Land raw JSON in SeaweedFS → GE suite → `bronze.fred_series_raw` (Delta MERGE)
+- [ ] dbt: `stg_fred_series` → `silver_macro_indicators` (+ tests)
+- [ ] `dags/ingest_fred.py` triggering `dbt_build` via Dataset
+- [ ] **Done when:** weekly DAG runs green and Silver updates automatically
+
+### Phase 2 — Zillow + HUD Crosswalk
+- [ ] `ingestion/zillow_client.py` (download + melt) with fixture-CSV tests
+- [ ] Bronze `zori_raw`, `zhvi_raw`; full historical backfill
+- [ ] HUD ZIP→CBSA and TRACT→ZIP crosswalks
+- [ ] dbt `silver_rent_index`, `silver_home_values` (+ range tests)
+- [ ] `dags/ingest_zillow.py`
+- [ ] **Done when:** you can query rent + home value history for any covered zip
+
+### Phase 3 — Census + BLS + Gold + Scoring
+- [ ] `census_client.py`, `bls_client.py` → Bronze → Silver
+- [ ] `gold_zip_investment_metrics`
+- [ ] `scoring/score.py` + `config/scoring.yaml` + `tests/test_score.py`
+- [ ] Gold dbt tests; `data_quality_report` DAG with alerts
+- [ ] **Done when:** `SELECT * FROM gold.zip_opportunity_score ORDER BY national_rank LIMIT 20` is meaningful
+
+### Phase 4 — Dashboard (MVP complete)
+- [ ] Evidence.dev project on local DuckDB
+- [ ] Pages: National Overview, Zip Deep-Dive, Metro Comparison, Screener
+- [ ] **Done when:** you can find top zips and see full score decomposition — **MVP**
+
+### Phase 5 — Spark Batch: HMDA (+ GDELT history)
+- [ ] `spark` compose profile with `delta-spark`
+- [ ] `jobs/hmda_lar.py`; backfill 2018–latest
+- [ ] `silver_spark.zip_lending_activity` → join into Gold
+- [ ] `jobs/gdelt_gkg_filter.py` → `silver_spark.gdelt_metro_tone`
+- [ ] Airflow `SparkSubmitOperator` DAGs
+- [ ] **Done when:** investor purchase share appears on the Zip Deep-Dive page
+
+### Phase 6 — Streaming News + LLM Outlook
+- [ ] `streaming` compose profile: Kafka (KRaft), Schema Registry, Kafka UI
+- [ ] Producers: RSS → Reddit → GDELT live
+- [ ] `jobs/stream_news_to_bronze.py` (Structured Streaming, checkpointed)
+- [ ] dbt `silver_news_items` with metro tagging
+- [ ] `llm/summarize.py` + `llm_metro_outlook` DAG (Batch API, structured outputs)
+- [ ] Dashboard page 5: **Market Pulse** (outlook per metro, themes, cited sources)
+- [ ] **Done when:** weekly outlooks populate automatically with valid citations
+
+### Phase 7 — Lineage & Observability
+- [ ] `observability` profile: Marquez, Prometheus, Grafana
+- [ ] OpenLineage on Airflow, Spark, dbt
+- [ ] Grafana: DAG health, Kafka lag, freshness, LLM cost per run
+- [ ] **Done when:** one lineage graph shows raw file → dashboard
+
+### Phase 8 — Cloud Deployment (optional)
+- [ ] Terraform: budget alert first, then buckets, BigQuery, secrets, IAM (§12.2), WIF for GitHub Actions
+- [ ] dbt `bigquery` target; dashboard deployed as static site
+- [ ] **Done when:** public URL live; monthly cloud bill under budget
+
+### Phase 9 — Stretch
+Redfin, HUD FMR, score v2 (§7.5), tier-change alerts, dbt snapshots for score history, Databricks Free Edition portability demo, README + architecture diagram + demo video.
 
 ---
 
-### PHASE 1 — Foundation (Week 1–2) ← IN PROGRESS
-*Goal: Core infrastructure + first data source flowing end-to-end*
+## 15. Cost Model
 
-#### Step 1.1 — Repo & Environment Setup ✅
-- [x] Create GitHub repo
-- [x] Set up Python venv (pyenv + venv)
-- [x] Create requirements.txt
-- [x] Create .env.example
-- [x] Write Makefile
-- [x] Set up pre-commit hooks
-- [x] Initialize dbt project
-- [ ] **Commit:** initial scaffold
+### 15.1 Local-First (Phases 0–7)
 
-#### Step 1.2 — FRED API Ingest ← CURRENT STEP
-- [x] Register for FRED API key
-- [x] Write `ingestion/fred_client.py` with `fetch_series()` and `fetch_all_series()`
-- [ ] Write unit tests: `tests/test_fred_client.py`
-- [ ] Write `scripts/backfill_fred.py` to pull 5 years of history
-- [ ] Save raw output to GCS/MinIO: `rental-opportunity-raw/fred/`
-- [ ] Load to `bronze.fred_series_raw` Delta table
-- [ ] **Commit:** FRED ingest client + tests
+| Item | Monthly cost |
+|---|---|
+| All data sources | $0 (free keys for FRED, Census, BLS, Reddit) |
+| Docker stack (Airflow, Spark, Kafka, SeaweedFS, observability) | $0 — runs on your machine |
+| GitHub + GitHub Actions (public repo) | $0 |
+| **LLM outlook (Claude Batch API)** | **~$1–6** — see below |
+| **Total** | **~$1–6 / month** |
 
-#### Step 1.3 — Local MinIO + DuckDB Delta Setup
-- [ ] Add MinIO to docker-compose, start it
-- [ ] Write `ingestion/storage_client.py` (boto3 wrapper for GCS/MinIO)
-- [ ] Write `ingestion/bronze_loader.py` (writes Parquet to Delta via deltalake)
-- [ ] Verify: `duckdb.sql("SELECT * FROM delta_scan('data/delta/bronze/fred_series_raw/')")`
-- [ ] **Commit:** object storage + bronze delta working
+**LLM estimate** (assumes ~30k input tokens + ~1k output per metro, Batch API 50% discount, list prices as of Nov 2026 — verify on the pricing page):
 
-#### Step 1.4 — First dbt Model (Silver FRED)
-- [ ] Write `dbt/models/staging/stg_fred_series.sql`
-- [ ] Write `dbt/models/silver/silver_mortgage_rates.sql` (pivot + forward-fill)
-- [ ] Add schema.yml with `not_null`, `unique` tests
-- [ ] `dbt run && dbt test` — all pass
-- [ ] **Commit:** first dbt silver model
+| Cadence / scope | Opus 5.5 (default) | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|
+| Weekly, 20 metros | ~$6 | ~$3 | <$1 |
+| Daily, 50 metros | ~$100 | ~$50 | ~$3 |
 
-#### Step 1.5 — Airflow DAG for FRED
-- [ ] Install Astro CLI, initialize Airflow project
-- [ ] Write `dags/ingest_fred_weekly.py`
-- [ ] Trigger manually, verify all tasks green
-- [ ] **Commit:** Airflow + FRED DAG end-to-end
+Weekly is the planned cadence. Prompt caching on the shared system prompt reduces cost further.
 
-**Phase 1 Deliverable:** Automated FRED macro pipeline running in Airflow, writing to Bronze Delta, transforming to Silver via dbt.
+### 15.2 Cloud (Phase 8, optional)
+
+| Item | Monthly cost |
+|---|---|
+| GCS (few GB) | <$1 |
+| BigQuery | $0 within free tier (1 TB query / 10 GB storage) |
+| Secret Manager, Artifact Registry | <$1 |
+| Dashboard (static hosting) | $0 |
+| Spot VM for Airflow/Kafka, scheduled | ~$10–15 (≈$25–50 if always on) |
+| **Total (+ LLM)** | **~$12–30** |
+
+New GCP accounts' free-trial credits would likely cover the first months. **Avoid:** Cloud Composer, managed Kafka, always-on Dataproc/Databricks, GKE, Snowflake after trial.
 
 ---
 
-### PHASE 2 — Zillow CSV Pipeline (Week 3–4)
-*Goal: Rent and home value data flowing into Silver*
+## 16. Tech Stack & Decision Log
 
-#### Step 2.1 — Zillow CSV Client
-- [ ] Download ZORI and ZHVI CSVs manually first — inspect the schema
-- [ ] Write `ingestion/zillow_csv_client.py`:
-  - `download_zori_csv(output_path) → str`
-  - `download_zhvi_csv(output_path) → str`
-  - `melt_zori(df) → pd.DataFrame` (wide → long format)
-  - `melt_zhvi(df) → pd.DataFrame`
-- [ ] Write unit tests with fixture CSVs (small sample of the real file)
-- [ ] **Commit:** Zillow CSV client + tests
+### 16.1 Stack
 
-#### Step 2.2 — Zillow Bronze Tables
-- [ ] Write bronze schema for `zori_raw` and `zhvi_raw`
-- [ ] Write bronze loader for Zillow (MERGE ON region_name + month)
-- [ ] Run full backfill: load all historical data
-- [ ] Verify row counts: ZORI should have ~2,500 zips × ~100 months = ~250k rows
-- [ ] **Commit:** Zillow bronze tables loaded
+| Layer | Tool |
+|---|---|
+| Orchestration | Apache Airflow (Docker; data-aware scheduling) |
+| Batch processing | Python (small sources), Apache Spark + delta-spark (large sources) |
+| Streaming | Apache Kafka (KRaft) + Schema Registry (Avro), Spark Structured Streaming |
+| Object storage | SeaweedFS (local) → GCS (cloud) |
+| Table format | Delta Lake |
+| Transformation | dbt (dbt-duckdb → dbt-bigquery) |
+| Warehouse / query | DuckDB (local) → BigQuery (cloud) |
+| Scoring | Python + pandas |
+| AI summarization | Claude via Message Batches API, structured outputs, prompt caching |
+| Data quality | Great Expectations, dbt tests, dbt-expectations, source freshness |
+| Lineage | OpenLineage + Marquez |
+| Monitoring | Prometheus + Grafana |
+| Dashboard | Evidence.dev |
+| IaC / IAM | Terraform (GCP), Workload Identity Federation |
+| CI/CD | GitHub Actions |
+| Dev tooling | Docker Compose, pytest, black, flake8, sqlfluff, pre-commit |
 
-#### Step 2.3 — Silver Rent and Home Value Models
-- [ ] Write `dbt/models/staging/stg_zori.sql`
-- [ ] Write `dbt/models/staging/stg_zhvi.sql`
-- [ ] Write `dbt/models/silver/silver_rent_index.sql`
-- [ ] Write `dbt/models/silver/silver_home_values.sql`
-- [ ] Add HUD crosswalk as a dbt seed: `dbt/seeds/hud_zip_cbsa_crosswalk.csv`
-- [ ] Join crosswalk to add `cbsa_code` to `silver_home_values`
-- [ ] Add dbt tests: not_null, accepted ranges for rent/value
-- [ ] `dbt run && dbt test` — all pass
-- [ ] **Commit:** silver rent + home value models
+### 16.2 Decision Log
 
-#### Step 2.4 — Airflow Zillow DAG
-- [ ] Write `dags/ingest_zillow_monthly.py`
-- [ ] Test end-to-end with manual trigger
-- [ ] **Commit:** Zillow DAG
-
-**Phase 2 Deliverable:** Full rent + home value history in Silver. You can now query: "what is the median rent and home value for any US zip code?"
-
----
-
-### PHASE 3 — Census + BLS + Gold Layer (Week 5–6)
-*Goal: All data sources in Silver, Gold tables built, opportunity score computed*
-
-#### Step 3.1 — Census API Client
-- [ ] Write `ingestion/census_client.py`
-- [ ] Bronze + Silver models for zip demographics
-- [ ] **Commit**
-
-#### Step 3.2 — BLS API Client
-- [ ] Write `ingestion/bls_client.py`
-- [ ] Bronze + Silver models for metro job growth
-- [ ] **Commit**
-
-#### Step 3.3 — Gold: Zip Investment Metrics
-- [ ] Write `dbt/models/gold/gold_zip_investment_metrics.sql`
-- [ ] Implement LAG-based YoY growth calculations
-- [ ] Join all Silver tables
-- [ ] Validate: check that yield, price-to-rent, rent growth all look reasonable
-- [ ] **Commit**
-
-#### Step 3.4 — Gold: Opportunity Score
-- [ ] Write `scoring/score.py` (percentile ranking + composite score)
-- [ ] Write unit tests: `tests/test_score.py`
-  - Test that all scores land between 0 and 100
-  - Test that tier thresholds are correct
-  - Test that national_rank is sequential with no gaps
-- [ ] Write `dbt/models/gold/gold_zip_opportunity_score.sql`
-  (or keep as Python — either approach is valid)
-- [ ] Add dbt tests on Gold output
-- [ ] **Commit:** full Gold layer + scoring
-
-#### Step 3.5 — Data Quality Layer
-- [ ] Write dbt tests for all Gold tables:
-  - `assert_yield_positive.sql`
-  - `assert_score_between_0_100.sql`
-  - `assert_price_to_rent_reasonable.sql` (between 5 and 50)
-  - `assert_no_future_months.sql`
-- [ ] Add `data_quality_checks` Airflow DAG
-- [ ] **Commit:** data quality layer
-
-**Phase 3 Deliverable:** `gold.zip_opportunity_score` populated with ranked scores for all US zips. You can query "SELECT * FROM gold.zip_opportunity_score ORDER BY national_rank LIMIT 20" and get a meaningful answer.
+| # | Decision | Alternatives | Rationale |
+|---|---|---|---|
+| D1 | Local-first; cloud deferred | Cloud from day one | Near-zero cost while building; same code deploys later |
+| D2 | Delta Lake | Apache Iceberg | Already in deps; first-class in `deltalake` (Python), DuckDB `delta_scan`, Spark; keeps Databricks option open. Iceberg would be equally valid. |
+| D3 | BigQuery for cloud | Snowflake | Free tier covers this scale; native GCP IAM; no trial cliff |
+| D4 | No Databricks (for now) | Databricks paid / Free Edition | Avoids cost and splitting the platform; Spark jobs kept portable so it can be added later |
+| D5 | Self-hosted Kafka (KRaft) | Confluent Cloud, Google Managed Kafka | Managed Kafka has fixed costs that don't fit a hobby budget |
+| D6 | Spark only for HMDA/GDELT/streaming | Spark for everything | Small sources are faster and simpler in Python/DuckDB; shows judgment about tool fit |
+| D7 | BLS CES (monthly) over QCEW | QCEW (quarterly) | Timeliness |
+| D8 | RSS/Reddit API/GDELT over raw article scraping | Scrape full articles | Respects site terms and paywalls; GDELT provides scale legitimately |
+| D9 | LLM weekly via Batch API | Daily / real-time | Rental markets move slowly; ~95% cheaper than daily, 50% batch discount |
+| D10 | Scoring in Python, not SQL | dbt-only | Cross-zip percentile ranking + config-driven weights are clearer in pandas |
+| D11 | SeaweedFS for local object storage | MinIO | MinIO's community Docker images are no longer published on Docker Hub; SeaweedFS is Apache-2.0 and S3-compatible, so boto3/deltalake/DuckDB code is unchanged |
 
 ---
 
-### PHASE 4 — Dashboard (Week 7–8)
-*Goal: Live, usable dashboard showing the opportunity map*
-
-#### Step 4.1 — Evidence.dev Setup
-- [ ] `npm create evidence@latest` inside `dashboard/`
-- [ ] Configure DuckDB connection
-- [ ] Verify sample query runs
-- [ ] **Commit:** Evidence scaffold
-
-#### Step 4.2 — Build Page 1: National Opportunity Map
-- [ ] Choropleth map colored by opportunity_score
-- [ ] Top 50 table below the map
-- [ ] Metric callout cards (national median rent, 30yr rate, etc.)
-- [ ] **Commit**
-
-#### Step 4.3 — Build Page 2: Zip Deep-Dive
-- [ ] Score decomposition bar chart
-- [ ] Rent trend + home value trend line charts
-- [ ] Key stats table
-- [ ] National rank + metro rank display
-- [ ] **Commit**
-
-#### Step 4.4 — Build Pages 3 + 4
-- [ ] Metro comparison page
-- [ ] Custom screener with filters
-- [ ] **Commit:** all 4 dashboard pages
-
-**Phase 4 Deliverable:** Fully functional local dashboard. You can open it and identify the top zip codes for rental investment with full score decomposition.
-
----
-
-### PHASE 5 — Deployment (Week 9–10)
-*Goal: Live public URL, cloud pipeline, portfolio-ready*
-
-#### Step 5.1 — Cloud Migration
-- [ ] Set up GCP project
-- [ ] Migrate MinIO → GCS (change one env var)
-- [ ] Migrate DuckDB → Snowflake for prod profile (change dbt target)
-- [ ] Verify pipeline runs in cloud
-
-#### Step 5.2 — Deploy Dashboard
-- [ ] Deploy Evidence.dev to Cloud Run or Vercel
-- [ ] Set up custom domain (optional)
-- [ ] Verify public URL works
-
-#### Step 5.3 — Cloud Scheduler
-- [ ] Set up Cloud Scheduler to trigger Airflow DAGs on schedule
-- [ ] Monitor first automated run
-
-#### Step 5.4 — README + Documentation
-- [ ] Write thorough README with architecture diagram
-- [ ] Add screenshots of dashboard
-- [ ] Add link to live demo
-- [ ] Record 2-minute Loom walkthrough
-- [ ] **Final commit**
-
----
-
-### PHASE 6 — Stretch Goals (As Time Allows)
-
-| Enhancement | Complexity | Value |
-|---|---|---|
-| HUD Fair Market Rents integration | Low | Second rent data source, cross-validation |
-| Cap rate estimator (needs property tax data) | High | Most valuable investment metric |
-| Email alert when zip score changes tier | Medium | Makes it a live tool, not just a dashboard |
-| Terraform for GCP infra | Low | Resume polish |
-| GitHub Actions CI/CD | Low | Resume polish |
-| Redfin listing-level data | Medium | Enables property-level analysis |
-| Historical score tracking | Low | Shows how scores change over time |
-
----
-
-## 11. Tech Stack Summary
-
-| Layer | Tool | Rationale |
-|---|---|---|
-| Orchestration | Apache Airflow (Astro CLI) | Industry standard, already in portfolio |
-| Object Storage (local) | MinIO | S3-compatible, runs in Docker |
-| Object Storage (cloud) | GCS | Already familiar |
-| Table Format | Delta Lake (deltalake Python lib) | ACID transactions, no Spark needed |
-| Transformations | dbt + DuckDB | Already set up in this project ✅ |
-| Data Warehouse (dev) | DuckDB | Zero cost, zero config, fast |
-| Data Warehouse (prod) | Snowflake | Production demo |
-| Scoring | Python + pandas | Percentile ranking, explainable weights |
-| Dashboard | Evidence.dev | Modern, markdown-based, strong portfolio signal |
-| Data Quality | dbt tests | Shows production maturity |
-| Cloud | GCP | Already familiar |
-
----
-
-## 12. Risks & Mitigations
+## 17. Risks & Mitigations
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Zillow changes CSV format or URL | Medium | Store raw files in GCS — only Silver breaks, not Bronze. Add schema validation on download. |
-| ZORI coverage gaps (not all zips have rent data) | High | Expected — ZORI covers ~2,500 zips, ZHVI covers ~26,000. Scores only computed where both exist. Document coverage clearly. |
-| Census ACS vintage lag (data is 1–2 years old) | Low | Expected and acceptable. Note vintage year on all demographic metrics. |
-| BLS job data is metro-level, not zip-level | Medium | Accepted limitation. Document in README. All zips in a metro share the same job growth score. |
-| DuckDB performance on full ZHVI history (~26k zips × 280 months) | Low | ~7M rows — DuckDB handles this easily. |
-| Snowflake credit burn during deployment | Low | Use DuckDB for all dev. Snowflake only for final production demo. |
+| Zillow changes CSV format/URL | Medium | Raw files kept immutable; GE schema checks fail loudly; only Silver breaks |
+| ZORI covers far fewer zips than ZHVI | High | Expected. Score only where both exist; show coverage on dashboard |
+| ZCTA ≠ zip; tract→zip allocation is approximate | High | Documented approximation; use HUD `res_ratio` weights; label metrics as estimates |
+| HMDA/BLS metrics are metro- or year-level | Medium | Carry vintage columns; show "as of" on dashboard |
+| Reddit API terms/limits change | Medium | Reddit is one of three news sources; pipeline tolerates a missing producer |
+| LLM hallucination in outlooks | Medium | Citation-required prompt + post-check against input IDs; store inputs for audit; show sources on dashboard |
+| LLM cost creep | Low | Weekly cadence, Batch API, per-run token logging in Grafana, hard cap on items per metro |
+| Laptop resources (Kafka + Spark + Airflow) | Medium | Compose profiles; run only what the current phase needs |
+| Scope creep / never finishing | **High** | MVP = Phases 0–4. Each phase ends runnable. Streaming and cloud come after a working product. |
+| Accidental cloud spend (Phase 8) | Low | Budget alert is the first Terraform resource; spot + scheduled VM; no fixed-fee managed services |
+| Secrets leaked to git | Low | `.env` gitignored; pre-commit `detect-secrets`; Secret Manager + WIF in cloud |
 
 ---
 
-*Document Version: 2.0*
-*Revised from: Housing Market Intelligence Platform v1.0*
-*Key change: Refocused from general housing analytics to rental property investment opportunity scoring. Removed ML price estimator and listing-level Zillow API in favor of entirely free open data sources (Zillow Research CSVs, FRED, Census, BLS). Core pipeline architecture unchanged.*
-*Author: Alex (UC Berkeley, MIDS/Haas)*
+## 18. Appendix: Repo Cleanup Backlog
+
+Found during review on 2026-11-11:
+
+- [ ] `data/housing.duckdb` and `logs/dbt.log` are committed despite `.gitignore` → `git rm --cached`.
+- [ ] `requirements.txt`: remove `mlflow`, `xgboost`, `scikit-learn`; split into base / airflow / spark / dev; reconsider Airflow version (currently pinned 2.9.1) before building DAGs.
+- [ ] `.env.example`: remove RapidAPI and Walk Score keys; add `BLS_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`, `ANTHROPIC_API_KEY`; rename bucket vars to `rpof-raw` / `rpof-lake`.
+- [ ] `ingestion/fred_client.py`: add `UNRATE`; replace `print` with `logging`; add request timeout and retry/backoff.
+- [ ] `dbt/`: delete `models/example/`; add `profiles.yml`; update `dbt_project.yml` model configs for `staging/silver/gold`.
+- [ ] README: replace one-line title with overview, architecture diagram, quickstart (`make up`).
+- [ ] Add `sqlfluff` and `detect-secrets` to pre-commit.
+
+---
+
+*Document Version: 3.0*
+*Revised from: v2.0 (Rental Property Opportunity Finder) and v1.0 (Housing Market Intelligence Platform).*
+*Key change: Local-first platform adding Spark (HMDA, GDELT), Kafka streaming news ingestion, a weekly LLM market-outlook layer, data quality/lineage/observability, CI from day one, and a deferred Terraform-managed GCP deployment with least-privilege IAM. Databricks and Snowflake omitted for cost.*
