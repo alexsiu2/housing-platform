@@ -1,0 +1,182 @@
+# Local platform for the Rental Property Opportunity Finder.
+#
+#   make up          -> core profile (object storage + Airflow)
+#   make down
+#
+# Later phases add profiles: spark, streaming, observability.
+# Based on the official Airflow 3.4.0 docker-compose, trimmed to
+# LocalExecutor (no Redis/Celery) to keep laptop memory use low.
+#
+# Credentials below are local-only development defaults.
+
+name: rpof
+
+x-airflow-common: &airflow-common
+  build:
+    context: ..
+    dockerfile: docker/airflow/Dockerfile
+  image: rpof-airflow:3.4.0
+  env_file:
+    - path: ../.env
+      required: false
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:-}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-rpof-local-jwt-secret}
+    AIRFLOW__API_AUTH__JWT_ISSUER: rpof
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Project code is mounted at /opt/airflow/project and importable from DAGs.
+    PYTHONPATH: /opt/airflow/project
+    # Inside the compose network, storage is reached by service name.
+    STORAGE_ENDPOINT: http://seaweedfs:8333
+    STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-rpof-local}
+    STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-rpof-local-secret}
+  volumes:
+    - ../dags:/opt/airflow/dags
+    - ../logs/airflow:/opt/airflow/logs
+    - ../ingestion:/opt/airflow/project/ingestion
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+    seaweedfs:
+      condition: service_healthy
+
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.53
+    profiles: [core]
+    command: >
+      server -dir=/data -ip.bind=0.0.0.0
+      -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "8333:8333"   # S3 API
+      - "9333:9333"   # master UI
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9333/cluster/status || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  storage-init:
+    <<: *airflow-common
+    profiles: [core]
+    entrypoint: ["python", "-m", "ingestion.storage", "--create-buckets"]
+    restart: "no"
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    profiles: [core]
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    profiles: [core]
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/logs
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+        /entrypoint airflow version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-airflow}
+    user: "0:0"
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow-common
+    profiles: [core]
+    command: api-server
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    profiles: [core]
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    profiles: [core]
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    profiles: [core]
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db-volume:
+  seaweedfs-data:
