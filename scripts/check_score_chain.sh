@@ -18,7 +18,8 @@ new_runs() {  # $1 = dag, $2 = JSON list of run ids seen before
 import json, os, sys
 before = set(json.loads(os.environ["BEFORE"]))
 new = [r for r in json.load(sys.stdin) if r["run_id"] not in before]
-print(f"{len(new)} new run(s): {sorted(r[\"state\"] for r in new)}")
+states = sorted(r["state"] for r in new)
+print(f"{len(new)} new run(s): {states}")
 '
 }
 
