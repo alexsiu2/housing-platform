@@ -46,6 +46,14 @@ models:
               name: rent_to_income_above_one_warning
               arguments: {min_value: 0, max_value: 1}
               config: {severity: warn}
+      - name: price_to_income_ratio
+        description: >
+          Home value / median household income: how expensive buying is
+          relative to local earnings (entry-price sub-score from v1.1; it
+          replaced price_to_rent_ratio, which is exactly 1 / gross yield).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 200}
       - name: yoy_job_growth_pct
         description: Metro YoY job growth (latest BLS month <= this month); null outside CES metros.
       - name: job_growth_month

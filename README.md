@@ -74,10 +74,10 @@ make load-hud                         # latest HUD crosswalk vintage
 | rental yield | 12 × rent ÷ home value | higher | 30% |
 | rent growth | rent vs 12 months earlier | higher | 25% |
 | affordability | 12 × rent ÷ median household income | lower | 20% |
-| entry price | home value ÷ annual rent | lower | 15% |
+| entry price | home value ÷ median household income | lower | 15% |
 | demand growth | metro jobs vs 12 months earlier | higher | 10% |
 
-A zip is scored only with yield, rent growth and affordability, and with population ≥ 1,000. If metro job data is missing (outside a CES metro, or > 3 months stale), its weight is spread over the rest and `partial_score` is true.
+A zip is scored only with yield, rent growth and affordability, and with population ≥ 1,000. If metro job data is missing (outside a CES metro, or > 3 months stale), demand growth scores a neutral 50 and `partial_score` is true. Current weights: `v1.1` (changelog in design doc §7.6). Compare any two configs with `python scripts/compare_scores.py`.
 
 ```bash
 make load-census                      # ACS 5-year vintages 2019+ by ZCTA (needs CENSUS_API_KEY)

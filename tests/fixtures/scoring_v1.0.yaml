@@ -1,0 +1,45 @@
+# Frozen copy of weights_version v1.0 (design doc §7 as first written), kept
+# so tests cover the original §7.4 redistribution and the v1.0 -> v1.1
+# comparison stays reproducible. Do not edit; config/scoring.yaml is live.
+weights_version: v1.0
+
+# Sub-score -> raw metric in gold_zip_investment_metrics, direction, weight.
+# Weights must sum to 1.
+sub_scores:
+  score_rental_yield:
+    metric: gross_rental_yield_pct
+    direction: higher        # higher yield = better
+    weight: 0.30
+  score_rent_growth:
+    metric: rent_growth_1yr_pct
+    direction: higher
+    weight: 0.25
+  score_affordability:
+    metric: rent_to_income_ratio
+    direction: lower         # rent is a smaller share of local income
+    weight: 0.20
+  score_entry_price:
+    metric: price_to_rent_ratio
+    direction: lower         # cheaper to buy relative to rent
+    weight: 0.15
+  score_demand_growth:
+    metric: yoy_job_growth_pct
+    direction: higher
+    weight: 0.10
+
+# §7.4: a zip is scored only if these are all present. Any other missing
+# sub-score has its weight redistributed proportionally (partial_score = true).
+required: [score_rental_yield, score_rent_growth, score_affordability]
+
+# Tier cut-offs on the 0-100 composite.
+tiers:
+  strong: 70
+  moderate: 45
+
+# Eligibility rules not in the design doc (kept explicit and tunable):
+eligibility:
+  # ACS median income for tiny ZCTAs has huge margins of error and would
+  # swing the affordability sub-score; skip them.
+  min_population: 1000
+  # Job growth older than this (vs the snapshot month) counts as missing.
+  max_job_data_lag_months: 3

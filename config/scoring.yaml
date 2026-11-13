@@ -1,7 +1,15 @@
 # Opportunity score configuration (design doc §7). Change weights here, not in
 # code, and bump weights_version: every scoring run records it, and any change
 # should ship with a before/after comparison of the top 50 (§7.5).
-weights_version: v1.0
+#
+# v1.1 (from v1.0, see design doc §7.6):
+#   - score_entry_price uses price_to_income_ratio. v1.0 used
+#     price_to_rent_ratio, which is exactly 1 / gross yield, so 45% of the
+#     score rode on one ratio.
+#   - Missing metro job growth scores neutral (50) instead of having its
+#     weight redistributed, which had lifted no-job-data small towns to
+#     half of the top 20.
+weights_version: v1.1
 
 # Sub-score -> raw metric in gold_zip_investment_metrics, direction, weight.
 # Weights must sum to 1.
@@ -19,16 +27,18 @@ sub_scores:
     direction: lower         # rent is a smaller share of local income
     weight: 0.20
   score_entry_price:
-    metric: price_to_rent_ratio
-    direction: lower         # cheaper to buy relative to rent
+    metric: price_to_income_ratio
+    direction: lower         # cheaper to buy relative to local incomes
     weight: 0.15
   score_demand_growth:
     metric: yoy_job_growth_pct
     direction: higher
     weight: 0.10
+    missing: neutral         # no metro job data -> 50 (median), flagged partial
 
 # §7.4: a zip is scored only if these are all present. Any other missing
-# sub-score has its weight redistributed proportionally (partial_score = true).
+# sub-score follows its `missing` policy ("redistribute" its weight, the
+# default, or score it "neutral" = 50); either way partial_score = true.
 required: [score_rental_yield, score_rent_growth, score_affordability]
 
 # Tier cut-offs on the 0-100 composite.
