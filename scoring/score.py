@@ -5,8 +5,10 @@ For the snapshot month (latest month in the Gold metrics by default):
   1. Eligibility: required metrics present (§7.4), population >= min.
   2. Each sub-score = percentile rank among eligible zips, 0-100
      ("80" = beats 80% of zips); lower-is-better metrics are inverted.
-  3. Composite = weighted sum; weights of missing optional sub-scores are
-     redistributed proportionally and the row is flagged partial_score.
+  3. Composite = weighted sum. A missing optional sub-score follows its
+     `missing` policy: "redistribute" (its weight is spread over the others,
+     design doc §7.4 as written, v1.0) or "neutral" (scored 50, the median,
+     v1.1). Either way the row is flagged partial_score.
   4. Tier, national_rank (contiguous 1..N), metro_rank.
 
 Weights come from config/scoring.yaml and every run records weights_version.
@@ -45,12 +47,17 @@ class ScoreCheckError(RuntimeError):
     """The computed scores failed a sanity check; nothing was written."""
 
 
+MISSING_POLICIES = ("redistribute", "neutral")
+NEUTRAL_SCORE = 50.0
+
+
 @dataclass(frozen=True)
 class SubScore:
     name: str
     metric: str
     higher_is_better: bool
     weight: float
+    missing: str = "redistribute"
 
 
 @dataclass(frozen=True)
@@ -70,9 +77,16 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> ScoringConfig:
     for name, spec in raw["sub_scores"].items():
         if spec["direction"] not in ("higher", "lower"):
             raise ValueError(f"{name}: direction must be 'higher' or 'lower'")
+        missing = spec.get("missing", "redistribute")
+        if missing not in MISSING_POLICIES:
+            raise ValueError(f"{name}: missing must be one of {MISSING_POLICIES}")
         subs.append(
             SubScore(
-                name, spec["metric"], spec["direction"] == "higher", spec["weight"]
+                name,
+                spec["metric"],
+                spec["direction"] == "higher",
+                spec["weight"],
+                missing,
             )
         )
     total = sum(s.weight for s in subs)
@@ -82,6 +96,9 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> ScoringConfig:
     unknown = set(raw["required"]) - names
     if unknown:
         raise ValueError(f"required lists unknown sub-scores: {sorted(unknown)}")
+    metrics = [s.metric for s in subs]
+    if len(set(metrics)) != len(metrics):
+        raise ValueError("Each sub-score must use a different metric")
     elig = raw.get("eligibility", {})
     return ScoringConfig(
         weights_version=str(raw["weights_version"]),
@@ -140,13 +157,18 @@ def compute_scores(
     for s in config.sub_scores:
         df[s.name] = percentile_score(df[s.metric], s.higher_is_better).round(2)
 
+    # Any missing optional input makes the score partial, whatever the policy.
+    df["partial_score"] = df[[s.metric for s in config.sub_scores]].isna().any(axis=1)
+    for s in config.sub_scores:
+        if s.missing == "neutral":
+            df[s.name] = df[s.name].fillna(NEUTRAL_SCORE)
+
     weights = pd.DataFrame(
         {s.name: df[s.name].notna() * s.weight for s in config.sub_scores}
     )
     weight_present = weights.sum(axis=1)
     weighted = sum(df[s.name].fillna(0) * s.weight for s in config.sub_scores)
     df["opportunity_score"] = (weighted / weight_present).round(2)
-    df["partial_score"] = weight_present < 1 - 1e-9
 
     df["tier"] = "weak"
     df.loc[df["opportunity_score"] >= config.moderate, "tier"] = "moderate"
@@ -163,7 +185,7 @@ def compute_scores(
         df.groupby("cbsa_code", dropna=True)["zip"].transform("count").astype("Int64")
     )
 
-    df["snapshot_month"] = snapshot_month
+    df["snapshot_month"] = snapshot_month.date()  # DATE, not TIMESTAMP
     df["weights_version"] = config.weights_version
     df["scored_at"] = datetime.now(timezone.utc)
 

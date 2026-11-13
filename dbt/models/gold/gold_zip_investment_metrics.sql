@@ -5,6 +5,7 @@
       gross_rental_yield_pct = 12 x rent / home value x 100
       price_to_rent_ratio    = home value / (12 x rent)
       rent_to_income_ratio   = 12 x rent / median household income
+      price_to_income_ratio  = home value / median household income
 
     Point-in-time joins, so history stays honest:
       - ACS: newest vintage published by that month. A 5-year vintage V is
@@ -71,6 +72,8 @@ select
     round(w.home_value / nullif(12 * w.rent_index, 0), 3) as price_to_rent_ratio,
     round(12 * w.rent_index / nullif(w.median_household_income, 0), 4)
         as rent_to_income_ratio,
+    round(w.home_value / nullif(w.median_household_income, 0), 3)
+        as price_to_income_ratio,
     w.median_household_income,
     w.population,
     w.renter_share,

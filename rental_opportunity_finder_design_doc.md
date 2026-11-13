@@ -301,14 +301,14 @@ CREATE TABLE gold.metro_news_outlook (
 
 The score must be **explainable**: every zip's score decomposes into sub-scores, each tracing back to one raw metric.
 
-### 7.1 Sub-Scores (v1 — ships in Phase 3)
+### 7.1 Sub-Scores (weights_version v1.1)
 
 | Sub-Score | Raw Metric | Direction | Weight |
 |---|---|---|---|
 | `score_rental_yield` | `gross_rental_yield` | higher = better | 30% |
 | `score_rent_growth` | `rent_growth_1yr` | higher = better | 25% |
 | `score_affordability` | `rent_to_income_ratio` | lower = better | 20% |
-| `score_entry_price` | `price_to_rent_ratio` | lower = better | 15% |
+| `score_entry_price` | `price_to_income_ratio` (home value ÷ median household income) | lower = better | 15% |
 | `score_demand_growth` | `yoy_job_growth_pct` (metro) | higher = better | 10% |
 
 ### 7.2 Normalization
@@ -332,7 +332,7 @@ Weights live in `config/scoring.yaml` (not hard-coded) so they are versioned and
 
 ### 7.4 Missing Data Rule
 
-A zip is scored only if yield, rent growth and affordability are all present. If `yoy_job_growth_pct` is missing (zip not in a CBSA), its weight is redistributed proportionally and the row is flagged `partial_score = true`.
+A zip is scored only if yield, rent growth and affordability are all present, and its ZCTA population is at least 1,000 (ACS income for tiny ZCTAs is too noisy). If `yoy_job_growth_pct` is missing (zip outside a CES metro) or more than 3 months stale, `score_demand_growth` is set to the neutral 50 and the row is flagged `partial_score = true`. (v1.0 redistributed the missing weight instead; see §7.6.)
 
 ### 7.5 Score v2 Candidates (after Phases 5–6)
 
@@ -342,6 +342,16 @@ A zip is scored only if yield, rent growth and affordability are all present. If
 | `score_market_sentiment` | `gold_metro_news_outlook` + GDELT tone | more positive = better | Add only after ≥3 months of history; cap weight at 5–10%. |
 
 Any v2 change ships as a new `weights_version` with a before/after comparison of the top 50.
+
+### 7.6 Scoring Changelog
+
+| Version | Change | Why |
+|---|---|---|
+| v1.0 | §7.1–7.4 as first designed; shipped in Phase 3 | — |
+| v1.1 | `score_entry_price`: `price_to_rent_ratio` → `price_to_income_ratio` | Price-to-rent is exactly 1 ÷ gross yield (rank correlation −1.0 on real data), so v1.0 put 45% of the weight on one ratio. Price-to-income correlates −0.69 with yield. |
+| v1.1 | Missing job growth: redistribute weight → neutral 50 | Redistribution assumed missing job growth was as strong as a zip's other sub-scores. Zips without job data were 2.5% of scored zips but 50% of the v1.0 top 20; with v1.1 it's 3 of the top 20. |
+
+v1.0 → v1.1 on the Sep 2026 snapshot: 44 of the top 50 kept, rank correlation 0.969, no zip moved between strong and weak. Reproduce it with `python scripts/compare_scores.py`. The frozen v1.0 config is `tests/fixtures/scoring_v1.0.yaml`.
 
 ---
 

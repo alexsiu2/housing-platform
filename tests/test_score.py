@@ -7,7 +7,8 @@ import pytest
 from scoring import score
 
 MONTH = pd.Timestamp("2026-09-01")
-CONFIG = score.load_config()
+CONFIG = score.load_config()  # live config (v1.1)
+V10 = score.load_config(Path(__file__).parent / "fixtures" / "scoring_v1.0.yaml")
 
 
 def metrics(rows):
@@ -30,6 +31,8 @@ def metrics(rows):
     df["rent_index"], df["home_value"] = 1500.0, 300000.0
     df["median_household_income"], df["population"] = 70000.0, 5000.0
     df["demographics_vintage"] = 2024
+    # Entry price (v1.1): independent of yield; same best-to-worst order here.
+    df["price_to_income_ratio"] = [2.0, 3.0, 4.0, 5.0, 7.0][: len(df)]
     df["job_growth_month"] = MONTH
     return df
 
@@ -44,7 +47,8 @@ FIVE = [
 
 
 def test_config_loads_and_weights_sum_to_one():
-    assert CONFIG.weights_version == "v1.0"
+    assert CONFIG.weights_version == "v1.1"
+    assert V10.weights_version == "v1.0"
     assert sum(s.weight for s in CONFIG.sub_scores) == pytest.approx(1)
     assert set(CONFIG.required) == {
         "score_rental_yield",
@@ -94,7 +98,7 @@ def test_best_and_worst_zips_rank_and_tier_correctly():
     )
     assert out["national_rank"].tolist() == [1, 2, 3, 4, 5]
     assert out.loc[out.zip == "00003", "opportunity_score"].item() == 50.0
-    assert out["weights_version"].unique().tolist() == ["v1.0"]
+    assert out["weights_version"].unique().tolist() == ["v1.1"]
     score.check_scores(out, CONFIG)
 
 
@@ -106,16 +110,62 @@ def test_lower_is_better_metrics_are_inverted():
     assert out.loc["00005", "score_affordability"] == 0.0
 
 
-def test_missing_job_growth_redistributes_weight_and_flags_partial():
+def _best_zip_without_jobs():
     rows = [list(r) for r in FIVE]
     rows[0][5] = None  # best zip has no metro job data
-    out = score.compute_scores(metrics(rows), CONFIG, MONTH).set_index("zip")
+    return metrics(rows)
+
+
+def test_v10_missing_job_growth_redistributes_weight():
+    out = score.compute_scores(_best_zip_without_jobs(), V10, MONTH).set_index("zip")
     best = out.loc["00001"]
     assert bool(best["partial_score"]) is True
     assert pd.isna(best["score_demand_growth"])
     # All other sub-scores are 100 -> redistributed composite is still 100.
     assert best["opportunity_score"] == 100.0
     assert not out.drop(index="00001")["partial_score"].any()
+
+
+def test_v11_missing_job_growth_scores_neutral_and_flags_partial():
+    out = score.compute_scores(_best_zip_without_jobs(), CONFIG, MONTH).set_index("zip")
+    best = out.loc["00001"]
+    assert bool(best["partial_score"]) is True
+    assert best["score_demand_growth"] == 50.0
+    # 0.9 x 100 + 0.1 x 50: no longer gets the benefit of the doubt.
+    assert best["opportunity_score"] == 95.0
+    assert not out.drop(index="00001")["partial_score"].any()
+
+
+def test_v10_entry_price_duplicated_yield_v11_does_not():
+    df = metrics(FIVE)
+    df["price_to_rent_ratio"] = 100 / df["gross_rental_yield_pct"]  # real relation
+    df["price_to_income_ratio"] = [7.0, 2.0, 3.0, 5.0, 4.0]  # independent order
+    v10 = score.compute_scores(df, V10, MONTH)
+    v11 = score.compute_scores(df, CONFIG, MONTH)
+    assert (v10["score_entry_price"] == v10["score_rental_yield"]).all()
+    assert not (v11["score_entry_price"] == v11["score_rental_yield"]).all()
+
+
+def test_config_rejects_two_sub_scores_on_one_metric(tmp_path):
+    text = (
+        Path(score.DEFAULT_CONFIG)
+        .read_text()
+        .replace("metric: price_to_income_ratio", "metric: gross_rental_yield_pct")
+    )
+    (tmp_path / "s.yaml").write_text(text)
+    with pytest.raises(ValueError, match="different metric"):
+        score.load_config(tmp_path / "s.yaml")
+
+
+def test_config_rejects_unknown_missing_policy(tmp_path):
+    text = (
+        Path(score.DEFAULT_CONFIG)
+        .read_text()
+        .replace("missing: neutral", "missing: zero")
+    )
+    (tmp_path / "s.yaml").write_text(text)
+    with pytest.raises(ValueError, match="missing must be"):
+        score.load_config(tmp_path / "s.yaml")
 
 
 def test_stale_job_data_treated_as_missing():
@@ -169,3 +219,10 @@ def test_run_reads_gold_and_writes_score_table(tmp_path):
     ).fetchall()
     con.close()
     assert top == [("00001", 1)]
+    con = duckdb.connect(db, read_only=True)
+    col_type = con.execute(
+        "select data_type from information_schema.columns "
+        "where table_name = 'zip_opportunity_score' and column_name = 'snapshot_month'"
+    ).fetchall()
+    con.close()
+    assert col_type == [("DATE",)]
