@@ -164,3 +164,58 @@ def _hud_suite(crosswalk: str) -> gx.ExpectationSuite:
 def validate_hud_crosswalk(df: pd.DataFrame, crosswalk: str) -> dict:
     """Validate a parsed HUD crosswalk; raise DataQualityError on failure."""
     return _raise_on_failure(_run_suite(df, _hud_suite(crosswalk)))
+
+
+def _bls_suite() -> gx.ExpectationSuite:
+    e = gx.expectations
+    return gx.ExpectationSuite(
+        name="bls_ces",
+        expectations=[
+            e.ExpectTableRowCountToBeBetween(min_value=1),
+            e.ExpectColumnValuesToNotBeNull(column="series_id"),
+            e.ExpectColumnValuesToNotBeNull(column="month"),
+            e.ExpectColumnValuesToNotBeNull(column="employment_thousands"),
+            e.ExpectColumnValuesToMatchRegex(
+                column="series_id", regex=r"^SMU\d{7}0000000001$"
+            ),
+            e.ExpectCompoundColumnsToBeUnique(column_list=["series_id", "month"]),
+            # Thousands of jobs: the smallest metros are ~10k, NYC ~10M.
+            e.ExpectColumnValuesToBeBetween(
+                column="employment_thousands",
+                min_value=0,
+                max_value=20000,
+                strict_min=True,
+            ),
+            _not_in_future("month"),
+        ],
+    )
+
+
+def validate_bls_ces(df: pd.DataFrame) -> dict:
+    """Validate parsed CES rows; raise DataQualityError on failure."""
+    return _raise_on_failure(_run_suite(df, _bls_suite()))
+
+
+def _census_suite() -> gx.ExpectationSuite:
+    e = gx.expectations
+    return gx.ExpectationSuite(
+        name="census_acs5",
+        expectations=[
+            # ~33k ZCTAs x 6 variables; a partial download would be far smaller.
+            e.ExpectTableRowCountToBeBetween(min_value=100000),
+            e.ExpectColumnValuesToNotBeNull(column="zcta"),
+            e.ExpectColumnValuesToMatchRegex(column="zcta", regex=r"^\d{5}$"),
+            e.ExpectCompoundColumnsToBeUnique(
+                column_list=["zcta", "variable", "vintage_year"]
+            ),
+            # Sentinels were nulled in parsing; anything left must be >= 0.
+            e.ExpectColumnValuesToBeBetween(column="value", min_value=0),
+            # Some small ZCTAs have suppressed estimates; most must exist.
+            e.ExpectColumnValuesToNotBeNull(column="value", mostly=0.8),
+        ],
+    )
+
+
+def validate_census_acs(df: pd.DataFrame) -> dict:
+    """Validate parsed ACS rows; raise DataQualityError on failure."""
+    return _raise_on_failure(_run_suite(df, _census_suite()))

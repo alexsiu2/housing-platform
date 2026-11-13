@@ -1,6 +1,6 @@
 """
-Write small *synthetic* Bronze Delta tables for tests and CI:
-bronze.fred_series_raw, zori_raw, zhvi_raw and hud_crosswalk_raw.
+Write small *synthetic* Bronze Delta tables for tests and CI: every Bronze
+table (FRED, Zillow, HUD, Census ACS, BLS CES).
 
 The values are fake, but they go through the real parse + merge code, so the
 schemas match production Bronze exactly.
@@ -22,7 +22,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ingestion.bronze_loader import merge_to_delta  # noqa: E402
 from ingestion.fred_client import parse_observations  # noqa: E402
 from ingestion.fred_pipeline import BRONZE_KEYS, BRONZE_TABLE  # noqa: E402
-from ingestion import hud_pipeline, zillow_pipeline  # noqa: E402
+from ingestion import (  # noqa: E402
+    bls_pipeline,
+    census_pipeline,
+    hud_pipeline,
+    zillow_pipeline,
+)
+from ingestion.bls_client import ces_series_id, parse_payload  # noqa: E402
+from ingestion.census_client import ACS_VARIABLES, parse_acs  # noqa: E402
 from ingestion.hud_client import parse_crosswalk  # noqa: E402
 from ingestion.zillow_client import parse_wide_csv  # noqa: E402
 
@@ -165,6 +172,64 @@ def build_zillow_and_hud(lake_root: str, start: str, end: str) -> dict:
     return out
 
 
+def build_census_and_bls(lake_root: str, start: str, end: str) -> dict:
+    """ACS vintages for every fixture zip; CES employment for its metros."""
+    fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    acs_frames = []
+    first_year, last_year = pd.Timestamp(start).year, pd.Timestamp(end).year
+    for vintage in range(first_year - 2, last_year - 1):
+        header = ["NAME", *ACS_VARIABLES, "zip code tabulation area"]
+        rows = [header]
+        for i, (zip_code, info) in enumerate(FIXTURE_ZIPS.items()):
+            income = 60000 + 15000 * i + 1000 * (vintage - first_year)
+            # 59001's income is suppressed (Census sentinel) to exercise nulls.
+            income_cell = "-666666666" if zip_code == "59001" else str(income)
+            rows.append(
+                [f"ZCTA5 {zip_code}", income_cell, "20000", "8000", "3000",
+                 "500", str(info[4] - 100), zip_code]
+            )  # fmt: skip
+        df = parse_acs(rows, vintage)
+        df["source_file"] = f"fixture://census/{vintage}"
+        df["ingested_at"] = fetched
+        acs_frames.append(df)
+    out = {}
+    uri = f"{lake_root}/bronze/{census_pipeline.BRONZE_TABLE}"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    out["census"] = merge_to_delta(
+        pd.concat(acs_frames, ignore_index=True), uri,
+        keys=census_pipeline.BRONZE_KEYS, partition_by=["vintage_year"],
+        run_id="fixture",
+    )  # fmt: skip
+
+    months = pd.date_range(start, end, freq="MS")
+    series = {}
+    for zip_code, info in FIXTURE_ZIPS.items():
+        cbsa = info[3]
+        if cbsa == "99999":
+            continue
+        state_fips = bls_pipeline.STATE_FIPS[info[1]]
+        base = 500 + 100 * len(series)
+        series[ces_series_id(state_fips, cbsa)] = [
+            (str(m.year), f"M{m.month:02d}", f"{base * (1 + 0.02 * i / 12):.1f}", [])
+            for i, m in enumerate(months)
+        ]
+    payload = {"Results": {"series": [
+        {"seriesID": sid, "data": [
+            {"year": y, "period": p, "value": v, "footnotes": f}
+            for y, p, v, f in pts
+        ]} for sid, pts in series.items()
+    ]}}  # fmt: skip
+    df = parse_payload(payload)
+    df["source_file"] = "fixture://bls"
+    df["ingested_at"] = fetched
+    uri = f"{lake_root}/bronze/{bls_pipeline.BRONZE_TABLE}"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    out["bls"] = merge_to_delta(
+        df, uri, keys=bls_pipeline.BRONZE_KEYS, run_id="fixture"
+    )
+    return out
+
+
 def build(lake_root: str, start: str, end: str) -> dict:
     fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
     frames = []
@@ -195,6 +260,7 @@ def main() -> None:
     root = str(Path(args.lake_root).resolve()).rstrip("/")
     print({"fred": build(root, args.start, args.end)})
     print(build_zillow_and_hud(root, args.start, args.end))
+    print(build_census_and_bls(root, args.start, args.end))
 
 
 if __name__ == "__main__":

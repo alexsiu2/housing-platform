@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_census__acs
+    description: Typed ACS 5-year rows from Bronze. Grain is (zcta, variable, vintage_year).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zcta, variable, vintage_year]}
+    columns:
+      - name: zcta
+        data_tests: [not_null]
+      - name: value
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1000000000}

@@ -14,10 +14,16 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import Param, dag, task
 
-from rpof_assets import ANY_BRONZE_UPDATE
+from rpof_assets import ANY_BRONZE_UPDATE, GOLD_METRICS
 
 DBT_BIN = "/opt/dbt-venv/bin/dbt"
 DBT_PROJECT_DIR = "/opt/airflow/project/dbt"
+
+
+def _alert(context):
+    from ingestion.alerts import task_failure_alert
+
+    task_failure_alert(context)
 
 
 @dag(
@@ -26,7 +32,11 @@ DBT_PROJECT_DIR = "/opt/airflow/project/dbt"
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 1, "retry_delay": timedelta(minutes=2)},
+    default_args={
+        "retries": 1,
+        "retry_delay": timedelta(minutes=2),
+        "on_failure_callback": _alert,
+    },
     params={
         # Restricted to selector characters so the value is safe in a shell.
         "select": Param(
@@ -40,6 +50,7 @@ DBT_PROJECT_DIR = "/opt/airflow/project/dbt"
 )
 def dbt_build():
     @task.bash(
+        outlets=[GOLD_METRICS],  # a green build schedules compute_scores
         cwd=DBT_PROJECT_DIR,
         env={
             "DBT_PROFILES_DIR": DBT_PROJECT_DIR,

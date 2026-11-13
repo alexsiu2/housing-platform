@@ -44,3 +44,15 @@ sources:
         meta:
           delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/hud_crosswalk_raw"
           storage_options: *lake_storage
+
+      - name: census_acs_raw
+        description: Census ACS 5-year estimates by ZCTA, long format, one row per (zcta, variable, vintage_year).
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/census_acs_raw"
+          storage_options: *lake_storage
+
+      - name: bls_ces_raw
+        description: BLS CES total nonfarm employment (NSA, thousands) by metro series and month.
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/bls_ces_raw"
+          storage_options: *lake_storage

@@ -10,8 +10,9 @@ See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportun
 |---|---|---|
 | 0 | Repo cleanup, Docker stack, storage + Bronze loader, CI | ✅ |
 | 1 | FRED end-to-end (Bronze → Silver, Airflow DAG) | ✅ |
-| 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | In progress: Zillow live, HUD awaiting real-data check |
-| 3–4 | Census/BLS, scoring, dashboard (MVP) | Planned |
+| 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | ✅ |
+| 3 | Census ACS + BLS jobs, Gold metrics, opportunity score, data-quality alerts | In progress: BLS live; Census + real scores pending |
+| 4 | Dashboard (MVP) | Planned |
 | 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
 
 ## Stack (current)
@@ -63,6 +64,28 @@ Silver: `silver_rent_index`, `silver_home_values` (zip × month, 1-year growth, 
 make backfill-zillow                  # full ZORI (2015+) + ZHVI (2000+) history
 make load-hud                         # latest HUD crosswalk vintage
 ```
+
+## Scoring (Phase 3)
+
+`gold.zip_opportunity_score`: one row per zip for the latest month, a 0–100 composite of five percentile sub-scores (design doc §7). Weights live in [`config/scoring.yaml`](config/scoring.yaml), and every run records `weights_version`.
+
+| Sub-score | Metric | Better | Weight |
+|---|---|---|---|
+| rental yield | 12 × rent ÷ home value | higher | 30% |
+| rent growth | rent vs 12 months earlier | higher | 25% |
+| affordability | 12 × rent ÷ median household income | lower | 20% |
+| entry price | home value ÷ annual rent | lower | 15% |
+| demand growth | metro jobs vs 12 months earlier | higher | 10% |
+
+A zip is scored only with yield, rent growth and affordability, and with population ≥ 1,000. If metro job data is missing (outside a CES metro, or > 3 months stale), its weight is spread over the rest and `partial_score` is true.
+
+```bash
+make load-census                      # ACS 5-year vintages 2019+ by ZCTA (needs CENSUS_API_KEY)
+make backfill-bls                     # metro employment 2014+ (needs BLS_API_KEY + HUD in Bronze)
+make dbt-build && make score          # Gold metrics, then scores
+```
+
+In Airflow, `compute_scores` runs after every green `dbt_build`. `data_quality_report` checks Bronze freshness daily, and every DAG alerts on failure (set `ALERT_WEBHOOK_URL` for Slack).
 
 ## Common commands
 

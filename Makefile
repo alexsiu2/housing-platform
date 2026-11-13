@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred backfill-zillow load-hud smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud backfill-bls load-census score smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -61,6 +61,15 @@ backfill-zillow:  ## Backfill full Zillow ZORI + ZHVI history to Bronze
 
 load-hud:  ## Load HUD zip-cbsa + tract-zip crosswalks (needs HUD_API_TOKEN), e.g. YEAR=2025 QUARTER=2
 	python scripts/load_hud_crosswalk.py $(if $(YEAR),--year $(YEAR)) $(if $(QUARTER),--quarter $(QUARTER))
+
+backfill-bls:  ## Backfill BLS CES metro employment (needs HUD crosswalk in Bronze), e.g. START=2014
+	python scripts/backfill_bls.py $(if $(START),--start $(START))
+
+load-census:  ## Load ACS 5-year vintages by ZCTA, e.g. make load-census VINTAGES="2019 2020 2021 2022 2023 2024"
+	python scripts/load_census.py $(if $(VINTAGES),--vintages $(VINTAGES))
+
+score:  ## Compute gold.zip_opportunity_score from the latest Gold month
+	python -m scoring.score
 
 smoke-test:  ## Trigger platform_smoke_test in the running stack and wait for success
 	scripts/run_dag.sh platform_smoke_test
