@@ -1,0 +1,46 @@
+version: 2
+
+# Bronze Delta tables written by ingestion/. Loaded into DuckDB on each run by
+# dbt-duckdb's delta plugin. LAKE_ROOT defaults to the local object store; CI
+# points it at a local fixture directory instead.
+#
+# Column tests live on the staging models, not here: tests on a plugin source
+# would each reload the table and collide when run in parallel.
+
+sources:
+  - name: bronze
+    schema: bronze
+    meta:
+      plugin: delta
+      materialization: table
+    tables:
+      - name: fred_series_raw
+        description: FRED observations, one row per (series_id, date). Upserted on each load.
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/fred_series_raw"
+          storage_options: &lake_storage
+            AWS_ENDPOINT_URL: "{{ env_var('STORAGE_ENDPOINT', 'http://localhost:8333') }}"
+            AWS_ACCESS_KEY_ID: "{{ env_var('STORAGE_ACCESS_KEY', 'rpof-local') }}"
+            AWS_SECRET_ACCESS_KEY: "{{ env_var('STORAGE_SECRET_KEY', 'rpof-local-secret') }}"
+            AWS_REGION: "{{ env_var('STORAGE_REGION', 'us-east-1') }}"
+            AWS_ALLOW_HTTP: "true"
+
+      - name: zori_raw
+        description: Zillow Observed Rent Index by zip, melted long, one row per (zip, month).
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/zori_raw"
+          storage_options: *lake_storage
+
+      - name: zhvi_raw
+        description: Zillow Home Value Index (mid tier) by zip, one row per (zip, month).
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/zhvi_raw"
+          storage_options: *lake_storage
+
+      - name: hud_crosswalk_raw
+        description: >
+          HUD USPS crosswalks, every loaded vintage. One row per
+          (crosswalk_type, vintage, zip, geoid).
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/hud_crosswalk_raw"
+          storage_options: *lake_storage

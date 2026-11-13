@@ -34,3 +34,86 @@ models:
         description: Year-over-year % change in CPI shelter.
       - name: case_shiller_hpi_yoy_pct
         description: Year-over-year % change in Case-Shiller national HPI.
+
+  - name: silver_rent_index
+    description: Zillow ZORI typical market rent by zip and month, with 1-year growth.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, month]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: month
+        data_tests: [not_null]
+      - name: rent_index
+        description: >
+          Typical monthly market rent ($), smoothed. Real values reach ~$100k
+          in Hamptons summer-rental zips (11930, 11963, 11976), often from a
+          single month of listings; > $50k only warns. The hard bound catches
+          unit errors (e.g. cents).
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 100, max_value: 250000}
+          - value_between:
+              name: rent_index_luxury_outlier_warning
+              arguments: {min_value: 100, max_value: 50000}
+              config: {severity: warn}
+      - name: rent_growth_1yr_pct
+        description: "% change vs exactly 12 months earlier; null if that month is missing."
+        data_tests:
+          - value_between:
+              arguments: {min_value: -75, max_value: 300}
+
+  - name: silver_home_values
+    description: >
+      Zillow ZHVI typical home value (mid tier) by zip and month, with 1-year
+      growth and the zip's primary CBSA.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, month]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: month
+        data_tests: [not_null]
+      - name: home_value
+        description: Typical home value ($), smoothed and seasonally adjusted.
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 1000, max_value: 100000000}
+      - name: home_value_growth_1yr_pct
+        data_tests:
+          - value_between:
+              arguments: {min_value: -75, max_value: 300}
+      - name: cbsa_code
+        description: Primary metro (most residential addresses); null outside any CBSA.
+
+  - name: silver_zip_cbsa_xwalk
+    description: Zip -> CBSA pairs from the latest HUD vintage; is_primary marks one CBSA per zip.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, cbsa_code]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: cbsa_code
+        data_tests: [not_null]
+      - name: res_ratio
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+
+  - name: silver_tract_zip_xwalk
+    description: Census tract -> zip residential allocation from the latest HUD vintage.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [tract, zip]}
+    columns:
+      - name: tract
+        data_tests: [not_null]
+      - name: res_ratio
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}

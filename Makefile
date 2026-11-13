@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -55,6 +55,12 @@ compose-check:  ## Validate the compose file without starting anything
 
 backfill-fred:  ## Backfill FRED to Bronze, e.g. make backfill-fred START=2019-01-01 [END=...]
 	python scripts/backfill_fred.py $(if $(START),--start $(START)) $(if $(END),--end $(END))
+
+backfill-zillow:  ## Backfill full Zillow ZORI + ZHVI history to Bronze
+	python scripts/backfill_zillow.py
+
+load-hud:  ## Load HUD zip-cbsa + tract-zip crosswalks (needs HUD_API_TOKEN), e.g. YEAR=2025 QUARTER=2
+	python scripts/load_hud_crosswalk.py $(if $(YEAR),--year $(YEAR)) $(if $(QUARTER),--quarter $(QUARTER))
 
 smoke-test:  ## Trigger platform_smoke_test in the running stack and wait for success
 	scripts/run_dag.sh platform_smoke_test

@@ -6,9 +6,19 @@ housing_platform:
     dev:
       type: duckdb
       path: "{{ env_var('DUCKDB_PATH', '../data/rpof.duckdb') }}"
-      threads: 4
+      # Inside Airflow these are lowered (docker/compose.yaml): the Docker VM
+      # is shared with other stacks, and an uncapped DuckDB (default: 80% of
+      # visible RAM) got the dbt task OOM-killed on the full ZHVI table.
+      threads: "{{ env_var('DBT_THREADS', '4') | int }}"
+      settings:
+        memory_limit: "{{ env_var('DBT_DUCKDB_MEMORY_LIMIT', '4GB') }}"
+        # DuckDB's own worker threads (default: one per CPU). Each holds scan
+        # buffers that sit outside memory_limit when reading Arrow sources.
+        threads: "{{ env_var('DBT_DUCKDB_THREADS', '8') | int }}"
+        # Spill to disk past the cap instead of failing.
+        preserve_insertion_order: false
       # Bronze Delta tables are read through the `deltalake` Python library
-      # (see models/staging/*/_sources.yml), so no DuckDB extensions are needed.
+      # (see models/staging/_bronze__sources.yml), so no DuckDB extensions are needed.
       plugins:
         - module: delta
     # Phase 8 adds a `bigquery` output for the cloud deployment.

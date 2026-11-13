@@ -1,9 +1,10 @@
 """
 Build and test dbt models whenever a Bronze table updates.
 
-Scheduled on the Bronze assets (rpof_assets.BRONZE_ASSETS), so a successful
-ingest_fred run rebuilds stg_fred__observations -> silver_macro_indicators
-and runs their tests. Any failing test fails the task.
+Scheduled on any Bronze asset update (rpof_assets.ANY_BRONZE_UPDATE): a
+successful ingest_fred, ingest_zillow or ingest_hud_crosswalk run rebuilds
+everything downstream of Bronze and runs its tests. Any failing test (not
+warning) fails the task.
 
 dbt lives in its own virtualenv in the image (/opt/dbt-venv) so its pins
 never fight Airflow's. Artifacts and logs go to /tmp, not the mounted repo.
@@ -13,7 +14,7 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import Param, dag, task
 
-from rpof_assets import BRONZE_ASSETS
+from rpof_assets import ANY_BRONZE_UPDATE
 
 DBT_BIN = "/opt/dbt-venv/bin/dbt"
 DBT_PROJECT_DIR = "/opt/airflow/project/dbt"
@@ -21,7 +22,7 @@ DBT_PROJECT_DIR = "/opt/airflow/project/dbt"
 
 @dag(
     dag_id="dbt_build",
-    schedule=BRONZE_ASSETS,
+    schedule=ANY_BRONZE_UPDATE,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
