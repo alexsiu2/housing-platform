@@ -42,6 +42,9 @@ jobs:
           python scripts/make_lake_fixture.py --lake-root "$LAKE_ROOT"
           cd dbt && dbt build --profiles-dir .
 
+      - name: Opportunity scores on the fixture warehouse
+        run: python -m scoring.score
+
   compose:
     name: Compose + Airflow image + DAG imports
     runs-on: ubuntu-24.04
@@ -58,6 +61,8 @@ jobs:
           docker run --rm \
             -v "$PWD/dags:/opt/airflow/dags" \
             -v "$PWD/ingestion:/opt/airflow/project/ingestion" \
+            -v "$PWD/scoring:/opt/airflow/project/scoring" \
+            -v "$PWD/config:/opt/airflow/project/config" \
             -e PYTHONPATH=/opt/airflow/project:/opt/airflow/dags \
             -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
             rpof-airflow:3.4.0 python -c "
@@ -67,7 +72,7 @@ jobs:
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))
-          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk'}
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report'}
           sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
           "
 

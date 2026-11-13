@@ -22,13 +22,23 @@ from rpof_assets import BRONZE_HUD_CROSSWALK
 CROSSWALKS = ["zip-cbsa", "tract-zip"]
 
 
+def _alert(context):
+    from ingestion.alerts import task_failure_alert
+
+    task_failure_alert(context)
+
+
 @dag(
     dag_id="ingest_hud_crosswalk",
     schedule="0 7 15 2,5,8,11 *",
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 2, "retry_delay": timedelta(minutes=10)},
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=10),
+        "on_failure_callback": _alert,
+    },
     params={
         "year": Param(None, type=["null", "integer"], minimum=2010),
         "quarter": Param(None, type=["null", "integer"], minimum=1, maximum=4),

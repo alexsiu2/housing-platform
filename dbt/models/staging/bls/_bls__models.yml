@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_bls__ces
+    description: Typed CES metro employment from Bronze. Grain is (series_id, month).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [series_id, month]}
+    columns:
+      - name: cbsa_code
+        data_tests: [not_null]
+      - name: employment_thousands
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 0, max_value: 20000}

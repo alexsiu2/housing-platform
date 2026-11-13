@@ -18,13 +18,23 @@ from airflow.sdk import Param, dag, task
 from rpof_assets import BRONZE_FRED
 
 
+def _alert(context):
+    from ingestion.alerts import task_failure_alert
+
+    task_failure_alert(context)
+
+
 @dag(
     dag_id="ingest_fred",
     schedule="0 6 * * 1",  # Mondays 06:00 UTC
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=5),
+        "on_failure_callback": _alert,
+    },
     params={
         "start_date": Param(
             None,

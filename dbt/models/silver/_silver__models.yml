@@ -117,3 +117,43 @@ models:
         data_tests:
           - value_between:
               arguments: {min_value: 0, max_value: 1}
+
+  - name: silver_zip_demographics
+    description: >
+      ACS 5-year demographics by zip (ZCTA) and vintage. Suppressed estimates
+      are null.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, vintage_year]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: median_household_income
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1000000}
+      - name: renter_share
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+
+  - name: silver_metro_job_growth
+    description: Metro total nonfarm employment (thousands, NSA) by month with YoY growth.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [cbsa_code, month]}
+    columns:
+      - name: cbsa_code
+        data_tests: [not_null]
+      - name: yoy_job_growth_pct
+        description: >
+          % change vs exactly 12 months earlier. COVID swings are real and
+          large: Elkhart-Goshen, IN (21140, RV manufacturing) went -35% in
+          Apr 2020 and +54.5% in Apr 2021. Beyond +/-40% only warns.
+        data_tests:
+          - value_between:
+              arguments: {min_value: -75, max_value: 75}
+          - value_between:
+              name: job_growth_extreme_swing_warning
+              arguments: {min_value: -40, max_value: 40}
+              config: {severity: warn}

@@ -604,16 +604,16 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 ### Phase 2 — Zillow + HUD Crosswalk
 - [x] `ingestion/zillow_client.py` (download + melt) with fixture-CSV tests
 - [x] Bronze `zori_raw`, `zhvi_raw`; full historical backfill
-- [ ] HUD ZIP→CBSA and TRACT→ZIP crosswalks (code + tests done; real load pending token)
+- [x] HUD ZIP→CBSA and TRACT→ZIP crosswalks
 - [x] dbt `silver_rent_index`, `silver_home_values` (+ range tests)
 - [x] `dags/ingest_zillow.py` (+ `dags/ingest_hud_crosswalk.py`)
 - [ ] **Done when:** you can query rent + home value history for any covered zip
 
 ### Phase 3 — Census + BLS + Gold + Scoring
-- [ ] `census_client.py`, `bls_client.py` → Bronze → Silver
-- [ ] `gold_zip_investment_metrics`
-- [ ] `scoring/score.py` + `config/scoring.yaml` + `tests/test_score.py`
-- [ ] Gold dbt tests; `data_quality_report` DAG with alerts
+- [x] `census_client.py`, `bls_client.py` → Bronze → Silver (Census real load pending a valid key)
+- [x] `gold_zip_investment_metrics`
+- [x] `scoring/score.py` + `config/scoring.yaml` + `tests/test_score.py`
+- [x] Gold dbt tests; `data_quality_report` DAG with alerts
 - [ ] **Done when:** `SELECT * FROM gold.zip_opportunity_score ORDER BY national_rank LIMIT 20` is meaningful
 
 ### Phase 4 — Dashboard (MVP complete)

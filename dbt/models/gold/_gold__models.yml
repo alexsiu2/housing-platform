@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: gold_zip_investment_metrics
+    description: >
+      Score inputs by zip and month (design doc §6.4, §7.1). Only zips with
+      both a Zillow rent and home value. ACS and job data are joined
+      point-in-time (see model header).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, month]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: month
+        data_tests: [not_null]
+      - name: gross_rental_yield_pct
+        description: >
+          12 x rent / home value x 100. Gross: ignores vacancy, repairs, taxes.
+          Real values above 30% exist in distressed markets with ~$45k homes
+          (Detroit 48213, Cahokia Heights IL 62206, Jackson MS 39209) and in
+          Hamptons summer-rental zips; the design's 0-30 range only warns.
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 0, max_value: 60}
+          - value_between:
+              name: gross_rental_yield_design_range
+              arguments: {min_value: 0, max_value: 30}
+              config: {severity: warn}
+      - name: price_to_rent_ratio
+        description: Home value / annual rent.
+        data_tests:
+          - value_between:
+              name: price_to_rent_ratio_design_range
+              arguments: {min_value: 5, max_value: 60}
+              config: {severity: warn}
+      - name: rent_to_income_ratio
+        description: >
+          Annual rent / median household income (0.3 = 30% of income). Above 1
+          happens in resort rental markets (Hamptons: up to ~10).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 20}
+          - value_between:
+              name: rent_to_income_above_one_warning
+              arguments: {min_value: 0, max_value: 1}
+              config: {severity: warn}
+      - name: yoy_job_growth_pct
+        description: Metro YoY job growth (latest BLS month <= this month); null outside CES metros.
+      - name: job_growth_month
+        description: BLS month the job growth came from.

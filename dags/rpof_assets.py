@@ -27,6 +27,14 @@ BRONZE_FRED = _bronze("fred_series_raw")
 BRONZE_ZORI = _bronze("zori_raw")
 BRONZE_ZHVI = _bronze("zhvi_raw")
 BRONZE_HUD_CROSSWALK = _bronze("hud_crosswalk_raw")
+BRONZE_BLS_CES = _bronze("bls_ces_raw")
+BRONZE_CENSUS_ACS = _bronze("census_acs_raw")
+
+# Emitted by dbt_build after a green build; schedules compute_scores.
+GOLD_METRICS = Asset(
+    name="gold.gold_zip_investment_metrics",
+    uri="duckdb://rpof/gold/gold_zip_investment_metrics",
+)
 
 # One "ready" signal per multi-table ingest DAG. Airflow creates a separate
 # asset-triggered run per event, so if dbt_build listened to zori_raw and
@@ -36,7 +44,13 @@ ZILLOW_READY = Asset(
 )
 
 # What dbt_build listens to: exactly one event per successful ingest run.
-DBT_TRIGGERS = [BRONZE_FRED, ZILLOW_READY, BRONZE_HUD_CROSSWALK]
+DBT_TRIGGERS = [
+    BRONZE_FRED,
+    ZILLOW_READY,
+    BRONZE_HUD_CROSSWALK,
+    BRONZE_BLS_CES,
+    BRONZE_CENSUS_ACS,
+]
 
 # Triggers when any one of them updates.
 ANY_BRONZE_UPDATE = reduce(or_, DBT_TRIGGERS)

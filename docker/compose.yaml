@@ -51,6 +51,8 @@ x-airflow-common: &airflow-common
     - ../ingestion:/opt/airflow/project/ingestion
     - ../dbt:/opt/airflow/project/dbt
     - ../data:/opt/airflow/project/data
+    - ../scoring:/opt/airflow/project/scoring
+    - ../config:/opt/airflow/project/config
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on: &airflow-common-depends-on
     postgres:
