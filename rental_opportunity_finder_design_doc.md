@@ -627,8 +627,8 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 - [ ] **Done when:** `SELECT * FROM gold.zip_opportunity_score ORDER BY national_rank LIMIT 20` is meaningful
 
 ### Phase 4 — Dashboard (MVP complete)
-- [ ] Evidence.dev project on local DuckDB
-- [ ] Pages: National Overview, Zip Deep-Dive, Metro Comparison, Screener
+- [x] Evidence.dev project on local DuckDB (pinned 40.x, reading a serving extract; see D12)
+- [x] Pages: National Overview, Zip Deep-Dive, Metro Comparison, Screener
 - [ ] **Done when:** you can find top zips and see full score decomposition — **MVP**
 
 ### Phase 5 — Spark Batch: HMDA (+ GDELT history)
@@ -738,6 +738,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | D9 | LLM weekly via Batch API | Daily / real-time | Rental markets move slowly; ~95% cheaper than daily, 50% batch discount |
 | D10 | Scoring in Python, not SQL | dbt-only | Cross-zip percentile ranking + config-driven weights are clearer in pandas |
 | D11 | SeaweedFS for local object storage | MinIO | MinIO's community Docker images are no longer published on Docker Hub; SeaweedFS is Apache-2.0 and S3-compatible, so boto3/deltalake/DuckDB code is unchanged |
+| D12 | Pinned open-source Evidence 40.x, reading a serving extract (`data/dashboard.duckdb`) | Evidence Studio; Streamlit; dashboard reads the warehouse directly | By Phase 4, Evidence had moved to the account-based Evidence Studio (curl-installed CLI, login, cloud warehouse by default). The open-source 40.x still matches this design (local, DuckDB, static build, no account) but gets no further upstream fixes. Evidence's DuckDB 1.4 can't read the DuckDB 2.0 warehouse, and a reader would block dbt's write lock, so `serving/dashboard_export.py` writes a separate extract in v1.4 storage format. The extract is tool-agnostic, so swapping the front end later is cheap. Cost: `npm audit` reports 57 unfixable advisories (mostly build/dev tooling); fine for localhost, but re-evaluate before a public deploy in Phase 8. |
 
 ---
 

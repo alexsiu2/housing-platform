@@ -17,3 +17,9 @@ dbt/dbt_packages/
 dbt/logs/
 dbt/.user.yml
 .ci_lake/
+
+# Dashboard (Evidence) build output and installs
+dashboard/node_modules/
+dashboard/build/
+dashboard/.evidence/template/
+dashboard/.svelte-kit/
