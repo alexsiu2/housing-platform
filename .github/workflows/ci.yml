@@ -45,6 +45,16 @@ jobs:
       - name: Opportunity scores on the fixture warehouse
         run: python -m scoring.score
 
+      - name: Dashboard serving extract
+        run: python -m serving.dashboard_export
+
+      - name: Upload serving extract for the dashboard job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-duckdb
+          path: data/dashboard.duckdb
+          retention-days: 1
+
   compose:
     name: Compose + Airflow image + DAG imports
     runs-on: ubuntu-24.04
@@ -62,6 +72,7 @@ jobs:
             -v "$PWD/dags:/opt/airflow/dags" \
             -v "$PWD/ingestion:/opt/airflow/project/ingestion" \
             -v "$PWD/scoring:/opt/airflow/project/scoring" \
+            -v "$PWD/serving:/opt/airflow/project/serving" \
             -v "$PWD/config:/opt/airflow/project/config" \
             -e PYTHONPATH=/opt/airflow/project:/opt/airflow/dags \
             -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
@@ -83,3 +94,32 @@ jobs:
 
       - name: Great Expectations imports in the image
         run: docker run --rm rpof-airflow:3.4.0 python -c "import great_expectations as gx; print(gx.__version__)"
+
+  dashboard:
+    name: Dashboard build (Evidence)
+    runs-on: ubuntu-24.04
+    needs: python
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Download serving extract built from the fixture warehouse
+        uses: actions/download-artifact@v4
+        with:
+          name: dashboard-duckdb
+          path: data
+
+      - name: Install (pinned, from lockfile)
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Extract sources and build every page (strict)
+        working-directory: dashboard
+        run: |
+          npm run sources:strict
+          npm run build:strict

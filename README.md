@@ -11,13 +11,13 @@ See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportun
 | 0 | Repo cleanup, Docker stack, storage + Bronze loader, CI | ✅ |
 | 1 | FRED end-to-end (Bronze → Silver, Airflow DAG) | ✅ |
 | 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | ✅ |
-| 3 | Census ACS + BLS jobs, Gold metrics, opportunity score, data-quality alerts | In progress: BLS live; Census + real scores pending |
-| 4 | Dashboard (MVP) | Planned |
+| 3 | Census ACS + BLS jobs, Gold metrics, opportunity score, data-quality alerts | ✅ |
+| 4 | Dashboard: overview, zip deep-dive, metros, screener (**MVP**) | ✅ |
 | 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
 
 ## Stack (current)
 
-Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`) · Great Expectations · dbt + DuckDB · Docker Compose · GitHub Actions
+Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`) · Great Expectations · dbt + DuckDB · Evidence.dev · Docker Compose · GitHub Actions
 
 ## Quickstart
 
@@ -86,6 +86,22 @@ make dbt-build && make score          # Gold metrics, then scores
 ```
 
 In Airflow, `compute_scores` runs after every green `dbt_build`. `data_quality_report` checks Bronze freshness daily, and every DAG alerts on failure (set `ALERT_WEBHOOK_URL` for Slack).
+
+## Dashboard (Phase 4)
+
+```bash
+make dashboard         # http://localhost:3000 (needs Node 18–22; `brew install node@22`)
+make dashboard-build   # static site in dashboard/build
+```
+
+| Page | What it answers |
+|---|---|
+| National Overview | Where are the best opportunities? Top 20 with every sub-score, strong zips by state, score distribution, macro backdrop, how the score works |
+| Zip Deep-Dive | Why does this zip score what it does? Points per sub-score (they add up to the score), raw metrics, ranks, rent and value history |
+| Metro Comparison | Which metros look best, and which zips inside one? |
+| Screener | Filter all scored zips by state, tier, score, yield, price and job-data coverage; download CSV |
+
+The dashboard reads `data/dashboard.duckdb`, a read-only extract Airflow refreshes after every scoring run (see [`dashboard/README.md`](dashboard/README.md) for why it is separate from the warehouse).
 
 ## Common commands
 

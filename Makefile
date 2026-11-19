@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred backfill-zillow load-hud backfill-bls load-census score smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud backfill-bls load-census score export-dashboard dashboard dashboard-build smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -70,6 +70,19 @@ load-census:  ## Load ACS 5-year vintages by ZCTA, e.g. make load-census VINTAGE
 
 score:  ## Compute gold.zip_opportunity_score from the latest Gold month
 	python -m scoring.score
+
+export-dashboard:  ## Refresh data/dashboard.duckdb (the dashboard's extract) from the warehouse
+	python -m serving.dashboard_export
+
+# Evidence 40.x needs Node 18-22. Homebrew's node@22 is keg-only, so use it if present.
+NODE_BIN := $(firstword $(wildcard /opt/homebrew/opt/node@22/bin /usr/local/opt/node@22/bin))
+NPM := $(if $(NODE_BIN),PATH=$(NODE_BIN):$$PATH npm,npm)
+
+dashboard: export-dashboard  ## Run the dashboard dev server on http://localhost:3000
+	cd dashboard && $(NPM) install --no-audit && $(NPM) run sources && $(NPM) run dev -- --port 3000
+
+dashboard-build: export-dashboard  ## Build the static dashboard site into dashboard/build
+	cd dashboard && $(NPM) ci && $(NPM) run sources:strict && $(NPM) run build:strict
 
 smoke-test:  ## Trigger platform_smoke_test in the running stack and wait for success
 	scripts/run_dag.sh platform_smoke_test

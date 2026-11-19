@@ -1,0 +1,6 @@
+# The serving extract written by serving/dashboard_export.py (opened read-only).
+# Path is relative to this folder: dashboard/sources/rpof/ -> data/
+name: rpof
+type: duckdb
+options:
+  filename: ../../../data/dashboard.duckdb

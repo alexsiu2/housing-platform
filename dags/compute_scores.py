@@ -3,7 +3,8 @@ Opportunity scores: runs after every green dbt_build (GOLD_METRICS asset).
 
 Reads gold.gold_zip_investment_metrics for the latest month, applies
 config/scoring.yaml, checks the result and replaces gold.zip_opportunity_score.
-A failed check raises before anything is written.
+A failed check raises before anything is written. Then refreshes the
+dashboard's serving extract (data/dashboard.duckdb).
 """
 
 from datetime import datetime, timedelta
@@ -47,7 +48,14 @@ def compute_scores():
 
         return run(month=params.get("month"))
 
-    score()
+    @task
+    def export_dashboard(_scored: dict) -> dict:
+        """Refresh data/dashboard.duckdb, the dashboard's read-only extract."""
+        from serving.dashboard_export import export
+
+        return export()
+
+    export_dashboard(score())
 
 
 compute_scores()
