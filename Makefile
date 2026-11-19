@@ -93,7 +93,7 @@ NODE_BIN := $(firstword $(wildcard /opt/homebrew/opt/node@22/bin /usr/local/opt/
 NPM := $(if $(NODE_BIN),PATH=$(NODE_BIN):$$PATH npm,npm)
 
 dashboard: export-dashboard  ## Run the dashboard dev server on http://localhost:3000
-	cd dashboard && $(NPM) install --no-audit && $(NPM) run sources && $(NPM) run dev -- --port 3000
+	cd dashboard && { test -d node_modules || $(NPM) ci; } && $(NPM) run sources && $(NPM) run dev -- --port 3000
 
 dashboard-build: export-dashboard  ## Build the static dashboard site into dashboard/build
 	cd dashboard && $(NPM) ci && $(NPM) run sources:strict && $(NPM) run build:strict
