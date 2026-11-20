@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: stg_spark__zip_lending_activity
+    description: Typed HMDA zip lending activity. Grain is (zip, activity_year).
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, activity_year]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: investor_purchase_share
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: purchase_loans_est
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 100000}

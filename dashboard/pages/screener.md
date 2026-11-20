@@ -33,8 +33,8 @@ select
     score_rental_yield, score_rent_growth, score_affordability,
     score_entry_price, score_demand_growth,
     gross_rental_yield_pct, rent_growth_1yr_pct, rent_to_income_ratio,
-    price_to_income_ratio, yoy_job_growth_pct, home_value, rent_index,
-    partial_score
+    price_to_income_ratio, yoy_job_growth_pct, investor_purchase_share,
+    home_value, rent_index, partial_score
 from rpof.scores
 where state in ${inputs.states.value}
   and tier like '${inputs.tier}'
@@ -63,6 +63,7 @@ select count(*) as n from ${results}
   <Column id=rent_to_income_ratio title="Rent / income" fmt=num2 />
   <Column id=price_to_income_ratio title="Price / income" fmt=num1 />
   <Column id=yoy_job_growth_pct title="Jobs %" fmt=num1 />
+  <Column id=investor_purchase_share title="Investor share" fmt=pct1 />
   <Column id=home_value title="Home value" fmt=usd0 />
   <Column id=rent_index title="Rent" fmt=usd0 />
   <Column id=partial_score title="Partial" />

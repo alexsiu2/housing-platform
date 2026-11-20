@@ -45,6 +45,9 @@ x-airflow-common: &airflow-common
     DBT_DUCKDB_MEMORY_LIMIT: ${DBT_DUCKDB_MEMORY_LIMIT:-1GB}
     DBT_DUCKDB_THREADS: ${DBT_DUCKDB_THREADS:-1}
     DBT_THREADS: ${DBT_THREADS:-1}
+    # Spark (profile `spark`): jobs/ are submitted from Airflow in client mode.
+    SPARK_MASTER_URL: spark://spark-master:7077
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
   volumes:
     - ../dags:/opt/airflow/dags
     - ../logs/airflow:/opt/airflow/logs
@@ -54,6 +57,7 @@ x-airflow-common: &airflow-common
     - ../scoring:/opt/airflow/project/scoring
     - ../serving:/opt/airflow/project/serving
     - ../config:/opt/airflow/project/config
+    - ../jobs:/opt/airflow/project/jobs
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on: &airflow-common-depends-on
     postgres:
@@ -191,6 +195,46 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+
+  # --- profile: spark (Phase 5) ---------------------------------------------
+  # Standalone Spark: one master + one worker. The driver runs in the Airflow
+  # scheduler (client mode), so jobs need the core profile too:
+  #   make up-spark
+  spark-master:
+    build:
+      context: ..
+      dockerfile: docker/spark/Dockerfile
+    image: rpof-spark:4.2.0
+    profiles: [spark]
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    hostname: spark-master
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_DAEMON_MEMORY: 512m
+      # Advertise the name clients use (spark://spark-master:7077); by default
+      # the master advertises its container IP and binds only that address.
+      SPARK_MASTER_HOST: spark-master
+    ports:
+      - "${SPARK_UI_PORT:-8090}:8080"   # master UI
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/json/ | grep -q ALIVE"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  spark-worker:
+    image: rpof-spark:4.2.0
+    profiles: [spark]
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_DAEMON_MEMORY: 256m
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2560m}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres-db-volume:

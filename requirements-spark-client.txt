@@ -1,0 +1,8 @@
+# Spark client inside the Airflow image (docker/airflow/Dockerfile).
+# pyspark must match the cluster image exactly (apache/spark:4.2.0).
+pyspark==4.2.0
+# The Spark provider depends on pyspark-client (Spark Connect), which installs
+# into the same `pyspark` module folder; unpinned it resolves to a newer
+# release and silently overwrites the 4.2.0 files. Pin it to the same version.
+pyspark-client==4.2.0
+apache-airflow-providers-apache-spark==6.3.4

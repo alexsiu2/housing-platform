@@ -12,6 +12,8 @@
         released in December of V+1, so use vintage <= year - 2.
       - Jobs: latest metro month at or before the zip month (ASOF join);
         job_growth_month records which month it came from.
+      - HMDA: newest activity year published by that month. Year Y's snapshot
+        is released in spring Y+1; count it from July 1 of Y+1.
 -#}
 with rent as (
     select zip, month, rent_index, rent_growth_1yr_pct
@@ -53,6 +55,13 @@ jobs as (
     select cbsa_code, month as job_growth_month, yoy_job_growth_pct
     from {{ ref('silver_metro_job_growth') }}
     where yoy_job_growth_pct is not null
+),
+
+lending as (
+    select
+        zip, activity_year, investor_purchase_share, purchase_loans_est,
+        purchase_loan_count_yoy_pct, is_low_sample
+    from {{ ref('silver_zip_lending_activity') }}
 )
 
 select
@@ -79,8 +88,21 @@ select
     w.renter_share,
     w.demographics_vintage,
     jobs.yoy_job_growth_pct,
-    jobs.job_growth_month
+    jobs.job_growth_month,
+    l.investor_purchase_share,
+    l.purchase_loans_est,
+    l.purchase_loan_count_yoy_pct,
+    l.is_low_sample as lending_low_sample,
+    l.activity_year as lending_data_vintage
 from with_demographics as w
 asof left join jobs
     on jobs.cbsa_code = w.cbsa_code
     and w.month >= jobs.job_growth_month
+left join lending as l
+    on l.zip = w.zip
+    and l.activity_year = (
+        select max(l2.activity_year)
+        from lending as l2
+        where l2.zip = w.zip
+          and make_date(l2.activity_year + 1, 7, 1) <= w.month
+    )

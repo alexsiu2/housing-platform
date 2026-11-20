@@ -40,10 +40,13 @@ def _alert(context):
     params={
         # Restricted to selector characters so the value is safe in a shell.
         "select": Param(
-            "source:bronze+",
+            # Every source layer: Bronze (ingestion) and silver_spark (Spark jobs).
+            # `source:bronze+` alone skipped the Spark-fed models.
+            "source:bronze+ source:silver_spark+",
             type="string",
             pattern=r"^[A-Za-z0-9_.:+*@,/ -]+$",
-            description="dbt node selection. Default: everything downstream of Bronze.",
+            description="dbt node selection. Default: everything downstream "
+            "of all sources.",
         ),
     },
     tags=["phase-1", "dbt"],
@@ -61,7 +64,12 @@ def dbt_build():
         append_env=True,
     )
     def build(params=None) -> str:
-        return f"{DBT_BIN} build --select '{params['select']}'"
+        # One writer at a time: DuckDB's own file lock does not work across
+        # Docker Desktop's file sharing (see ingestion/warehouse_lock.py).
+        return (
+            "python -m ingestion.warehouse_lock run -- "
+            f"{DBT_BIN} build --select {params['select']}"
+        )
 
     build()
 

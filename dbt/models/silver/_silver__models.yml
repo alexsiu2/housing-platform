@@ -157,3 +157,19 @@ models:
               name: job_growth_extreme_swing_warning
               arguments: {min_value: -40, max_value: 40}
               config: {severity: warn}
+
+  - name: silver_zip_lending_activity
+    description: >
+      HMDA home-purchase originations by zip and year with investor share and
+      YoY loan-count change. Estimates: tracts allocated to zips by HUD res_ratio.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [zip, activity_year]}
+    columns:
+      - name: zip
+        data_tests: [not_null]
+      - name: investor_purchase_share
+        description: Share of home-purchase originations for investment property (occupancy_type 3).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}

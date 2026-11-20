@@ -1,6 +1,7 @@
 """
 Write small *synthetic* Bronze Delta tables for tests and CI: every Bronze
-table (FRED, Zillow, HUD, Census ACS, BLS CES).
+table (FRED, Zillow, HUD, Census ACS, BLS CES) and the Spark-produced
+silver_spark.zip_lending_activity (HMDA).
 
 The values are fake, but they go through the real parse + merge code, so the
 schemas match production Bronze exactly.
@@ -230,6 +231,36 @@ def build_census_and_bls(lake_root: str, start: str, end: str) -> dict:
     return out
 
 
+def build_lending(lake_root: str, start: str, end: str) -> dict:
+    """silver_spark.zip_lending_activity, the shape jobs/hmda_lar.py writes."""
+    rows = []
+    for year in range(pd.Timestamp(start).year, pd.Timestamp(end).year):
+        for i, zip_code in enumerate(FIXTURE_ZIPS):
+            loans = 100.0 + 10 * i + 5 * (year % 3)
+            investor = round(loans * (0.08 + 0.02 * i), 2)
+            rows.append(
+                {
+                    "activity_year": year, "zip": zip_code,
+                    "purchase_loans_est": loans,
+                    "investor_purchase_loans_est": investor,
+                    "second_home_purchase_loans_est": round(loans * 0.03, 2),
+                    "median_loan_amount_est": 250000.0 + 10000 * i,
+                    "tracts": 2,
+                    "investor_purchase_share": round(investor / loans, 4),
+                    "xwalk_vintage": f"{year}Q4", "run_id": "fixture",
+                }
+            )  # fmt: skip
+    uri = f"{lake_root}/silver_spark/zip_lending_activity"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(rows)
+    df["tracts"] = df["tracts"].astype("int64")
+    df["activity_year"] = df["activity_year"].astype("int32")
+    return merge_to_delta(
+        df, uri, keys=["zip", "activity_year"], partition_by=["activity_year"],
+        run_id="fixture",
+    )  # fmt: skip
+
+
 def build(lake_root: str, start: str, end: str) -> dict:
     fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
     frames = []
@@ -261,6 +292,7 @@ def main() -> None:
     print({"fred": build(root, args.start, args.end)})
     print(build_zillow_and_hud(root, args.start, args.end))
     print(build_census_and_bls(root, args.start, args.end))
+    print({"lending": build_lending(root, args.start, args.end)})
 
 
 if __name__ == "__main__":

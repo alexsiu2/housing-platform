@@ -95,6 +95,33 @@ order by w.weight desc
 
 Raw metrics: gross yield and growth in %; rent-to-income and price-to-income as ratios (0.25 = 25% of local median income; 3.0 = three years of income). Census figures are for the ZCTA, which approximates the zip.
 
+## Investor activity (HMDA)
+
+Share of home-purchase mortgages taken out for **investment property**, from HMDA loan records allocated from census tracts to the zip (an estimate). Shown for context; it is not part of the score yet (a higher share can mean more competition, or a proven rental market).
+
+```sql lending
+select activity_year, purchase_loans_est, investor_purchase_share,
+       purchase_loan_count_yoy_pct, median_loan_amount_est
+from rpof.zip_lending
+where zip = '${inputs.zip.value}'
+order by activity_year
+```
+
+{#if z[0].investor_purchase_share != null}
+{#if z[0].lending_low_sample}
+<Alert status=warning>
+Small sample: this zip had only about {Math.round(z[0].purchase_loans_est)} home-purchase loans that year, so the investor share is not reliable.
+</Alert>
+{/if}
+<BigValue data={z} value=investor_purchase_share title="Investor share of purchases" fmt=pct1 />
+<BigValue data={z} value=purchase_loans_est title="Home-purchase loans (est.)" fmt=num0 />
+<BigValue data={z} value=lending_data_vintage title="HMDA year" fmt="####" />
+{:else}
+No HMDA lending data for this zip.
+{/if}
+
+<BarChart data={lending} x=activity_year y=investor_purchase_share title="Investor share of home purchases by year" yFmt=pct0 xType=category emptySet=pass emptyMessage="No HMDA history for this zip." />
+
 ## History
 
 ```sql history

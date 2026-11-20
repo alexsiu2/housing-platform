@@ -58,3 +58,12 @@ models:
         description: Metro YoY job growth (latest BLS month <= this month); null outside CES metros.
       - name: job_growth_month
         description: BLS month the job growth came from.
+      - name: investor_purchase_share
+        description: >
+          HMDA share of home-purchase originations for investment property in
+          lending_data_vintage (context; not a score input, design §7.5).
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: lending_data_vintage
+        description: HMDA activity year used (published by July 1 of the next year).

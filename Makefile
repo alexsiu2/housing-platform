@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred backfill-zillow load-hud backfill-bls load-census score export-dashboard dashboard dashboard-build smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud backfill-bls load-census score export-dashboard dashboard dashboard-build up-spark backfill-hmda smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -36,8 +36,19 @@ up: port-check  ## Start the core local stack (SeaweedFS + Airflow)
 port-check:  ## Fail early, naming the culprit, if the Airflow port (AIRFLOW_PORT) is taken
 	@scripts/check_port.sh
 
-down:  ## Stop the local stack (keeps data volumes)
-	$(COMPOSE) down
+down:  ## Stop the local stack, including Spark if running (keeps data volumes)
+	$(COMPOSE) --profile spark down
+
+up-spark: port-check  ## Start the core stack + Spark master/worker (needs ~10 GB Docker memory)
+	mkdir -p logs/airflow data
+	$(COMPOSE) --profile spark up -d --build
+
+# HMDA year Y is published in spring Y+1, so the newest loadable year is last year.
+HMDA_LAST_YEAR := $(shell expr $(shell date +%Y) - 1)
+HMDA_YEARS ?= $(shell seq 2018 $(HMDA_LAST_YEAR))
+
+backfill-hmda:  ## Run spark_hmda in Airflow for 2018..last year, e.g. make backfill-hmda YEARS="2024 2025"
+	scripts/run_dag.sh spark_hmda 14400 '{"years": [$(shell echo $(or $(YEARS),$(HMDA_YEARS)) | tr ' ' ',')]}'
 
 restart: down up  ## Restart the local stack
 
@@ -59,7 +70,7 @@ format:  ## Auto-format Python code
 
 dbt-build:  ## Run and test all dbt models against local DuckDB
 	mkdir -p data
-	$(DBT) build $(DBT_FLAGS)
+	$(PYTHON) -m ingestion.warehouse_lock run -- sh -c 'cd dbt && dbt build $(DBT_FLAGS)'
 
 dbt-debug:  ## Check the dbt connection
 	$(DBT) debug $(DBT_FLAGS)
@@ -83,10 +94,10 @@ load-census:  ## Load ACS 5-year vintages by ZCTA, e.g. make load-census VINTAGE
 	$(PYTHON) scripts/load_census.py $(if $(VINTAGES),--vintages $(VINTAGES))
 
 score:  ## Compute gold.zip_opportunity_score from the latest Gold month
-	$(PYTHON) -m scoring.score
+	$(PYTHON) -m ingestion.warehouse_lock run -- $(PYTHON) -m scoring.score
 
 export-dashboard:  ## Refresh data/dashboard.duckdb (the dashboard's extract) from the warehouse
-	$(PYTHON) -m serving.dashboard_export
+	$(PYTHON) -m ingestion.warehouse_lock run -- $(PYTHON) -m serving.dashboard_export
 
 # Evidence 40.x needs Node 18-22. Homebrew's node@22 is keg-only, so use it if present.
 NODE_BIN := $(firstword $(wildcard /opt/homebrew/opt/node@22/bin /usr/local/opt/node@22/bin))

@@ -13,11 +13,12 @@ See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportun
 | 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | ✅ |
 | 3 | Census ACS + BLS jobs, Gold metrics, opportunity score, data-quality alerts | ✅ |
 | 4 | Dashboard: overview, zip deep-dive, metros, screener (**MVP**) | ✅ |
+| 5 | Spark batch: HMDA mortgage records → investor purchase share by zip (GDELT history to follow) | ✅ HMDA |
 | 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
 
 ## Stack (current)
 
-Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`) · Great Expectations · dbt + DuckDB · Evidence.dev · Docker Compose · GitHub Actions
+Airflow 3 · SeaweedFS (S3-compatible object storage) · Delta Lake (`deltalake`) · Great Expectations · dbt + DuckDB · Apache Spark 4.2 + Delta · Evidence.dev · Docker Compose · GitHub Actions
 
 ## Quickstart
 
@@ -102,6 +103,29 @@ make dashboard-build   # static site in dashboard/build
 | Screener | Filter all scored zips by state, tier, score, yield, price and job-data coverage; download CSV |
 
 The dashboard reads `data/dashboard.duckdb`, a read-only extract Airflow refreshes after every scoring run (see [`dashboard/README.md`](dashboard/README.md) for why it is separate from the warehouse).
+
+## Spark: HMDA mortgage data (Phase 5)
+
+Every US home-mortgage application (HMDA, 2018 onward, ~10–25M rows a year) goes through Spark to estimate, per zip, how many home purchases were by **investors**:
+
+```
+spark_hmda (annual, mid-July; or manual with {"years": [...]})
+  download  FFIEC snapshot zip -> raw zone        stage  zip -> .csv.gz (Spark can't read zip)
+  hmda_lar  SparkSubmitOperator -> jobs/hmda_lar.py on the `spark` profile
+            originated 1-4 unit home purchases -> bronze.hmda_lar_raw
+            tract counts -> HUD tract->zip allocation -> silver_spark.zip_lending_activity
+```
+
+```bash
+make up-spark                          # core + Spark master/worker (start only when needed)
+make backfill-hmda                     # 2018 through last year, in Airflow; or YEARS="2024 2025"
+```
+
+Spark is sized to 2 cores / 2.5 GB because the Docker VM is shared; stop it when the load is done (`docker compose -f docker/compose.yaml --profile spark stop spark-master spark-worker`). Tract boundaries changed in 2020, and HMDA and HUD switched in different years, so the job picks each year's crosswalk by **measured** match rate and reports it. Investor share is shown on the Zip Deep-Dive and Screener as context; it is not a score input (design §7.5).
+
+## One warehouse writer at a time
+
+`data/rpof.duckdb` is written by Airflow (dbt, scoring, the dashboard export) and by `make dbt-build` / `make score` on the host. DuckDB's own file lock does **not** work across Docker Desktop's file sharing, so two writers once corrupted the file. Every writer now takes `data/.warehouse.lock` first (`ingestion/warehouse_lock.py`), and a second writer waits. If a crash leaves the lock behind, it is broken automatically after 3 hours, or you can remove the `data/.warehouse.lock` folder by hand. The warehouse is always rebuildable from the lake: `make dbt-build && make score`.
 
 ## Common commands
 

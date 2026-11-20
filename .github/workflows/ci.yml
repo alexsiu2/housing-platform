@@ -73,6 +73,7 @@ jobs:
             -v "$PWD/ingestion:/opt/airflow/project/ingestion" \
             -v "$PWD/scoring:/opt/airflow/project/scoring" \
             -v "$PWD/serving:/opt/airflow/project/serving" \
+            -v "$PWD/jobs:/opt/airflow/project/jobs" \
             -v "$PWD/config:/opt/airflow/project/config" \
             -e PYTHONPATH=/opt/airflow/project:/opt/airflow/dags \
             -e AIRFLOW__CORE__LOAD_EXAMPLES=false \
@@ -83,7 +84,7 @@ jobs:
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))
-          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report'}
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report', 'spark_hmda'}
           sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
           "
 
@@ -94,6 +95,27 @@ jobs:
 
       - name: Great Expectations imports in the image
         run: docker run --rm rpof-airflow:3.4.0 python -c "import great_expectations as gx; print(gx.__version__)"
+
+  spark:
+    name: Spark job tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PySpark (same version as the cluster image)
+        run: pip install pyspark==4.2.0 pytest==9.2.0
+
+      - name: HMDA job logic on a local Spark session
+        run: python -m pytest tests/test_hmda_lar.py -v
 
   dashboard:
     name: Dashboard build (Evidence)
