@@ -3,18 +3,24 @@
 #
 #   make smoke-test                  # platform_smoke_test
 #   make run-dag DAG=ingest_fred     # any DAG
+#   scripts/run_dag.sh spark_hmda 14400 '{"years": [2023]}'   # with run conf
 #
 # Exits 0 only if the run ends in state "success".
 set -euo pipefail
 
-DAG="${1:?usage: run_dag.sh DAG_ID [TIMEOUT_SECONDS]}"
+DAG="${1:?usage: run_dag.sh DAG_ID [TIMEOUT_SECONDS] [CONF_JSON]}"
 TIMEOUT="${2:-900}"
+CONF="${3:-}"
 COMPOSE=(docker compose -f "$(dirname "$0")/../docker/compose.yaml" --profile core)
 af() { "${COMPOSE[@]}" exec -T airflow-scheduler airflow "$@"; }
 
 RUN_ID="cli__$(date -u +%Y%m%dT%H%M%S)"
 af dags unpause "$DAG" >/dev/null
-af dags trigger "$DAG" --run-id "$RUN_ID" >/dev/null
+if [ -n "$CONF" ]; then
+  af dags trigger "$DAG" --run-id "$RUN_ID" --conf "$CONF" >/dev/null
+else
+  af dags trigger "$DAG" --run-id "$RUN_ID" >/dev/null
+fi
 echo "Triggered $DAG ($RUN_ID); waiting up to ${TIMEOUT}s..."
 
 deadline=$((SECONDS + TIMEOUT))

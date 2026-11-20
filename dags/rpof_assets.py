@@ -29,6 +29,13 @@ BRONZE_ZHVI = _bronze("zhvi_raw")
 BRONZE_HUD_CROSSWALK = _bronze("hud_crosswalk_raw")
 BRONZE_BLS_CES = _bronze("bls_ces_raw")
 BRONZE_CENSUS_ACS = _bronze("census_acs_raw")
+BRONZE_HMDA = _bronze("hmda_lar_raw")
+
+# Spark-produced aggregate (design §6.1: silver_spark/ tables are dbt sources).
+SILVER_SPARK_LENDING = Asset(
+    name="silver_spark.zip_lending_activity",
+    uri=f"s3://{_LAKE}/silver_spark/zip_lending_activity",
+)
 
 # Emitted by dbt_build after a green build; schedules compute_scores.
 GOLD_METRICS = Asset(
@@ -50,6 +57,7 @@ DBT_TRIGGERS = [
     BRONZE_HUD_CROSSWALK,
     BRONZE_BLS_CES,
     BRONZE_CENSUS_ACS,
+    SILVER_SPARK_LENDING,
 ]
 
 # Triggers when any one of them updates.

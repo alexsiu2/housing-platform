@@ -40,6 +40,8 @@ CONTEXT_COLUMNS = [
     "cbsa_code", "metro", "state", "city", "rent_index", "home_value",
     "median_household_income", "population", "demographics_vintage",
     "job_growth_month",
+    # HMDA investor activity: context only, not a sub-score (design §7.5).
+    "investor_purchase_share", "purchase_loans_est", "lending_data_vintage",
 ]  # fmt: skip
 
 

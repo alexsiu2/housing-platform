@@ -64,7 +64,18 @@ def warehouse(tmp_path):
             },  # fmt: skip
         }
     )
+    lending = pd.DataFrame(
+        {
+            "zip": ["00001", "00001", "99999"],
+            "activity_year": [2023, 2024, 2024],
+            "purchase_loans_est": [100.0, 110.0, 5.0],
+            "investor_purchase_share": [0.1, 0.12, 0.5],
+            "purchase_loan_count_yoy_pct": [None, 10.0, None],
+            "median_loan_amount_est": [250000.0, 260000.0, 1.0],
+        }
+    )
     for name, df, schema in [
+        ("silver_zip_lending_activity", lending, "silver"),
         ("zip_opportunity_score", scores, "gold"),
         ("gold_zip_investment_metrics", history, "gold"),
         ("silver_macro_indicators", macro, "silver"),
@@ -91,6 +102,7 @@ def test_export_builds_every_table(warehouse, tmp_path):
         "scores": 3,
         "zip_history": 2,  # pre-2015 row and unscored zip dropped
         "metro_summary": 1,  # zips without a CBSA excluded
+        "zip_lending": 2,  # unscored zip dropped
         "macro": 1,  # pre-2015 dropped
         "weights": 5,
         "build_info": 1,

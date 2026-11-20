@@ -61,6 +61,13 @@ TABLES = {
         where cbsa_code is not null
         group by cbsa_code
     """,
+    "zip_lending": """
+        select l.zip, l.activity_year, l.purchase_loans_est,
+               l.investor_purchase_share, l.purchase_loan_count_yoy_pct,
+               l.median_loan_amount_est
+        from wh.silver.silver_zip_lending_activity as l
+        where l.zip in (select zip from wh.gold.zip_opportunity_score)
+    """,
     "macro": f"""
         select month, mortgage_rate_30yr, unemployment_rate, housing_starts_k,
                cpi_shelter_yoy_pct, case_shiller_hpi_yoy_pct, median_sale_price

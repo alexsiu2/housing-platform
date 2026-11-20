@@ -1,0 +1,7 @@
+# Extra jars for Spark 4.2.0 (bundles Hadoop 3.5.0): Delta Lake + S3A.
+# <maven path> <sha1>   (checked at image build; see fetch_jars.sh)
+io/delta/delta-spark_2.13/4.4.1/delta-spark_2.13-4.4.1.jar 170d480a71af40697931462e3e0e4d99193248e4
+io/delta/delta-storage/4.4.1/delta-storage-4.4.1.jar ce279a7cd728b5df6dc5d568254bdc0058ffe6b4
+org/apache/hadoop/hadoop-aws/3.5.0/hadoop-aws-3.5.0.jar 9e594525d264c0db653c7f68da98b245f7d61ea5
+# AWS SDK v2 version pinned by hadoop-project 3.5.0 (~650 MB).
+software/amazon/awssdk/bundle/2.35.4/bundle-2.35.4.jar 7252265e3970b214708e68a8b74a8fa8c875af1e

@@ -16,6 +16,7 @@ snapshot-paths: ["snapshots"]
 # DuckDB "Catalog write-write conflict", so create it once up front.
 on-run-start:
   - "create schema if not exists bronze"
+  - "create schema if not exists silver_spark"
 
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"

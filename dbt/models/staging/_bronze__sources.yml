@@ -56,3 +56,25 @@ sources:
         meta:
           delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/bls_ces_raw"
           storage_options: *lake_storage
+
+  - name: silver_spark
+    description: >
+      Aggregates produced by Spark jobs (jobs/), read as dbt sources (design
+      §6.1). Written by Spark/Delta; read here through delta-rs.
+    schema: silver_spark
+    meta:
+      plugin: delta
+      materialization: table
+    tables:
+      - name: zip_lending_activity
+        description: >
+          HMDA home-purchase originations allocated from census tracts to zips
+          (HUD res_ratio). One row per (zip, activity_year). Counts are estimates.
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/silver_spark/zip_lending_activity"
+          storage_options:
+            AWS_ENDPOINT_URL: "{{ env_var('STORAGE_ENDPOINT', 'http://localhost:8333') }}"
+            AWS_ACCESS_KEY_ID: "{{ env_var('STORAGE_ACCESS_KEY', 'rpof-local') }}"
+            AWS_SECRET_ACCESS_KEY: "{{ env_var('STORAGE_SECRET_KEY', 'rpof-local-secret') }}"
+            AWS_REGION: "{{ env_var('STORAGE_REGION', 'us-east-1') }}"
+            AWS_ALLOW_HTTP: "true"
