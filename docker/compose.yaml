@@ -207,13 +207,17 @@ services:
     image: rpof-spark:4.2.0
     profiles: [spark]
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    hostname: spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_DAEMON_MEMORY: 512m
+      # Advertise the name clients use (spark://spark-master:7077); by default
+      # the master advertises its container IP and binds only that address.
+      SPARK_MASTER_HOST: spark-master
     ports:
       - "${SPARK_UI_PORT:-8090}:8080"   # master UI
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7077'"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/json/ | grep -q ALIVE"]
       interval: 10s
       retries: 10
     restart: unless-stopped

@@ -3,5 +3,8 @@
 io/delta/delta-spark_2.13/4.4.1/delta-spark_2.13-4.4.1.jar 170d480a71af40697931462e3e0e4d99193248e4
 io/delta/delta-storage/4.4.1/delta-storage-4.4.1.jar ce279a7cd728b5df6dc5d568254bdc0058ffe6b4
 org/apache/hadoop/hadoop-aws/3.5.0/hadoop-aws-3.5.0.jar 9e594525d264c0db653c7f68da98b245f7d61ea5
+# hadoop-aws 3.5.0 compile dependency (version from hadoop-project 3.5.0); without
+# it S3A fails with ClassNotFoundException ...analyticsaccelerator.request.ObjectClient.
+software/amazon/s3/analyticsaccelerator/analyticsaccelerator-s3/1.3.1/analyticsaccelerator-s3-1.3.1.jar 6c9bd0f6c440c9a78e82d272f5f0252d942419f6
 # AWS SDK v2 version pinned by hadoop-project 3.5.0 (~650 MB).
 software/amazon/awssdk/bundle/2.35.4/bundle-2.35.4.jar 7252265e3970b214708e68a8b74a8fa8c875af1e

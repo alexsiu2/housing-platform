@@ -64,7 +64,7 @@ TABLES = {
     "zip_lending": """
         select l.zip, l.activity_year, l.purchase_loans_est,
                l.investor_purchase_share, l.purchase_loan_count_yoy_pct,
-               l.median_loan_amount_est
+               l.median_loan_amount_est, l.is_low_sample
         from wh.silver.silver_zip_lending_activity as l
         where l.zip in (select zip from wh.gold.zip_opportunity_score)
     """,

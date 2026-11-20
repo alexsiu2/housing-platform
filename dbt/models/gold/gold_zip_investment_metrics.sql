@@ -60,7 +60,7 @@ jobs as (
 lending as (
     select
         zip, activity_year, investor_purchase_share, purchase_loans_est,
-        purchase_loan_count_yoy_pct
+        purchase_loan_count_yoy_pct, is_low_sample
     from {{ ref('silver_zip_lending_activity') }}
 )
 
@@ -92,6 +92,7 @@ select
     l.investor_purchase_share,
     l.purchase_loans_est,
     l.purchase_loan_count_yoy_pct,
+    l.is_low_sample as lending_low_sample,
     l.activity_year as lending_data_vintage
 from with_demographics as w
 asof left join jobs

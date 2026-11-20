@@ -72,6 +72,7 @@ def warehouse(tmp_path):
             "investor_purchase_share": [0.1, 0.12, 0.5],
             "purchase_loan_count_yoy_pct": [None, 10.0, None],
             "median_loan_amount_est": [250000.0, 260000.0, 1.0],
+            "is_low_sample": [False, False, True],
         }
     )
     for name, df, schema in [

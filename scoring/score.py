@@ -42,6 +42,7 @@ CONTEXT_COLUMNS = [
     "job_growth_month",
     # HMDA investor activity: context only, not a sub-score (design §7.5).
     "investor_purchase_share", "purchase_loans_est", "lending_data_vintage",
+    "lending_low_sample",
 ]  # fmt: skip
 
 

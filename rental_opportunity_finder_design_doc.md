@@ -632,12 +632,12 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 - [ ] **Done when:** you can find top zips and see full score decomposition — **MVP**
 
 ### Phase 5 — Spark Batch: HMDA (+ GDELT history)
-- [ ] `spark` compose profile with `delta-spark`
-- [ ] `jobs/hmda_lar.py`; backfill 2018–latest
-- [ ] `silver_spark.zip_lending_activity` → join into Gold
+- [x] `spark` compose profile with `delta-spark` (see D13)
+- [x] `jobs/hmda_lar.py`; backfill 2018–latest
+- [x] `silver_spark.zip_lending_activity` → join into Gold
 - [ ] `jobs/gdelt_gkg_filter.py` → `silver_spark.gdelt_metro_tone`
-- [ ] Airflow `SparkSubmitOperator` DAGs
-- [ ] **Done when:** investor purchase share appears on the Zip Deep-Dive page
+- [x] Airflow `SparkSubmitOperator` DAGs (`spark_hmda`; GDELT to follow)
+- [x] **Done when:** investor purchase share appears on the Zip Deep-Dive page
 
 ### Phase 6 — Streaming News + LLM Outlook
 - [ ] `streaming` compose profile: Kafka (KRaft), Schema Registry, Kafka UI
@@ -739,6 +739,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | D10 | Scoring in Python, not SQL | dbt-only | Cross-zip percentile ranking + config-driven weights are clearer in pandas |
 | D11 | SeaweedFS for local object storage | MinIO | MinIO's community Docker images are no longer published on Docker Hub; SeaweedFS is Apache-2.0 and S3-compatible, so boto3/deltalake/DuckDB code is unchanged |
 | D12 | Pinned open-source Evidence 40.x, reading a serving extract (`data/dashboard.duckdb`) | Evidence Studio; Streamlit; dashboard reads the warehouse directly | By Phase 4, Evidence had moved to the account-based Evidence Studio (curl-installed CLI, login, cloud warehouse by default). The open-source 40.x still matches this design (local, DuckDB, static build, no account) but gets no further upstream fixes. Evidence's DuckDB 1.4 can't read the DuckDB 2.0 warehouse, and a reader would block dbt's write lock, so `serving/dashboard_export.py` writes a separate extract in v1.4 storage format. The extract is tool-agnostic, so swapping the front end later is cheap. Cost: `npm audit` reports 57 unfixable advisories (mostly build/dev tooling); fine for localhost, but re-evaluate before a public deploy in Phase 8. |
+| D13 | Spark 4.2.0 + Delta 4.4.1 (Java 21, Hadoop 3.5.0 / hadoop-aws 3.5.0), standalone master + 1 worker; driver in Airflow (client mode) | Spark 4.3 (no Delta release supports it yet); Spark 3.5; DockerOperator | Delta 4.4.1 supports Spark ≤ 4.2.0. The Airflow 3.4 image is Debian 13 (Java 21/25 only), so Spark uses its Java 21 image too. PySpark is pinned twice (`pyspark` and `pyspark-client`, which the Spark provider pulls in and which overwrites the same module folder). Jars are SHA-1-verified at build. DockerOperator was rejected: it needs the Docker socket inside Airflow. Spark runs only for HMDA loads (`make up-spark`); the 8 GB Docker VM is shared, so Spark is sized to 2 cores / 2.5 GB. |
 
 ---
 

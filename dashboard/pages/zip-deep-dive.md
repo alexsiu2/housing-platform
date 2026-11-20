@@ -108,6 +108,11 @@ order by activity_year
 ```
 
 {#if z[0].investor_purchase_share != null}
+{#if z[0].lending_low_sample}
+<Alert status=warning>
+Small sample: this zip had only about {Math.round(z[0].purchase_loans_est)} home-purchase loans that year, so the investor share is not reliable.
+</Alert>
+{/if}
 <BigValue data={z} value=investor_purchase_share title="Investor share of purchases" fmt=pct1 />
 <BigValue data={z} value=purchase_loans_est title="Home-purchase loans (est.)" fmt=num0 />
 <BigValue data={z} value=lending_data_vintage title="HMDA year" fmt="####" />

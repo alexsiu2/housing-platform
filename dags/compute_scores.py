@@ -44,16 +44,20 @@ def _alert(context):
 def compute_scores():
     @task
     def score(params=None) -> dict:
+        from ingestion.warehouse_lock import warehouse_lock
         from scoring.score import run
 
-        return run(month=params.get("month"))
+        with warehouse_lock("compute_scores"):
+            return run(month=params.get("month"))
 
     @task
     def export_dashboard(_scored: dict) -> dict:
         """Refresh data/dashboard.duckdb, the dashboard's read-only extract."""
+        from ingestion.warehouse_lock import warehouse_lock
         from serving.dashboard_export import export
 
-        return export()
+        with warehouse_lock("export_dashboard"):
+            return export()
 
     export_dashboard(score())
 

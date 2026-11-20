@@ -18,6 +18,9 @@ select
     round(
         (cur.purchase_loans_est / nullif(prior.purchase_loans_est, 0) - 1) * 100, 2
     ) as purchase_loan_count_yoy_pct,
+    -- Shares from a handful of loans are mostly noise (2024: of 8.5k zips with
+    -- < 5 loans, 62 showed 100% investor and 2.5k showed 0%). Flag, don't hide.
+    cur.purchase_loans_est < 10 as is_low_sample,
     cur.tracts,
     cur.xwalk_vintage
 from lending as cur
