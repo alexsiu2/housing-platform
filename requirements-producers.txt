@@ -1,0 +1,7 @@
+# News producers (streaming/, docker/producers/Dockerfile): poll sources and
+# publish Avro events to Kafka through Schema Registry.
+confluent-kafka[avro,schemaregistry]==2.16.1
+fastavro==1.13.1
+feedparser==6.0.14
+requests==2.34.2
+pyyaml==6.0.3

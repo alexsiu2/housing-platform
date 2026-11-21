@@ -32,6 +32,9 @@ BRONZE_CENSUS_ACS = _bronze("census_acs_raw")
 BRONZE_HMDA = _bronze("hmda_lar_raw")
 BRONZE_FEMA_NRI = _bronze("fema_nri_raw")
 BRONZE_GDELT = _bronze("gdelt_housing_articles_raw")
+# Written every 15 minutes by stream_news_to_bronze. Not a dbt trigger (see
+# that DAG); dbt_build refreshes the news models on its daily schedule.
+BRONZE_NEWS = _bronze("news_events_raw")
 
 # Spark-produced aggregate (design §6.1: silver_spark/ tables are dbt sources).
 SILVER_SPARK_LENDING = Asset(

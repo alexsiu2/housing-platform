@@ -320,6 +320,67 @@ def build_gdelt(lake_root: str) -> dict:
     )  # fmt: skip
 
 
+def build_news(lake_root: str) -> dict:
+    """
+    bronze.news_events_raw as jobs/stream_news_to_bronze.py writes it: RSS and
+    live-GDELT items that exercise each metro-tagging path, the excluded-domain
+    filter and cross-source URL dedupe.
+    """
+    t0 = datetime(2025, 12, 8, 14, 0)
+    houston = "Houston, Texas, United States|USTX|29.76|-95.36"
+    new_york = "New York, New York, United States|USNY|40.71|-74.0"
+    base = {
+        "url": None, "title": None, "body_snippet": None, "published_at": t0,
+        "fetched_at": t0, "subreddit": None, "feed_name": None, "geo_hint": None,
+        "engagement": None, "tone": None, "themes": [],
+    }  # fmt: skip
+    items = [
+        # keyword, bare city name (Houston is bare_ok)
+        ("rss", "r1", {"url": "https://www.example.com/a?utm_source=x",
+                       "title": "Houston rents cool as supply rises",
+                       "body_snippet": "Landlords offer concessions.",
+                       "feed_name": "housingwire"}),
+        # same article via GDELT (canonical URL matches) -> deduped, snippet kept
+        ("gdelt", "g0:1", {"url": "http://example.com/a/",
+                           "title": "Houston rents cool as supply rises",
+                           "feed_name": "example.com", "tone": -1.5,
+                           "geo_hint": houston}),
+        # gdelt_geo: city + state code
+        ("gdelt", "g1:2", {"url": "https://news.example/ny-1",
+                           "title": "Co-op prices climb", "feed_name": "news.example",
+                           "tone": 2.0, "themes": ["ECON_HOUSING_PRICES"],
+                           "geo_hint": new_york}),
+        # keyword with state: "New York, NY"
+        ("rss", "r2", {"url": "https://www.example.com/b",
+                       "title": "Rent control vote in New York, NY",
+                       "feed_name": "redfin_news"}),
+        # national: no metro named; no publish time -> fetched_at
+        ("rss", "r3", {"url": "https://www.example.com/c",
+                       "title": "Mortgage rates fall for a third week",
+                       "feed_name": "realtor_research", "published_at": None}),
+        # excluded GDELT domain -> dropped in staging
+        ("gdelt", "g2:3", {"url": "https://prnewswire.com/x",
+                           "title": "Company announces REIT offering",
+                           "feed_name": "prnewswire.com", "tone": 3.0}),
+    ]  # fmt: skip
+    rows = []
+    for offset, (source, source_id, fields) in enumerate(items):
+        rows.append(
+            {
+                "source": source, "source_id": source_id, **base, **fields,
+                "topic": f"news.{source}.v1", "partition": 0, "offset": offset,
+                "kafka_timestamp": t0, "ingested_at": t0,
+            }
+        )  # fmt: skip
+    df = pd.DataFrame(rows)
+    uri = f"{lake_root}/bronze/news_events_raw"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    return merge_to_delta(
+        df, uri, keys=["source", "source_id"], partition_by=["source"],
+        run_id="fixture",
+    )  # fmt: skip
+
+
 def build(lake_root: str, start: str, end: str) -> dict:
     fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
     frames = []
@@ -354,6 +415,7 @@ def main() -> None:
     print({"lending": build_lending(root, args.start, args.end)})
     print({"nri": build_nri(root)})
     print({"gdelt": build_gdelt(root)})
+    print({"news": build_news(root)})
 
 
 if __name__ == "__main__":

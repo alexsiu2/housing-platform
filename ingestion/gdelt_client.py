@@ -18,27 +18,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from ingestion.gdelt_themes import HOUSING_THEMES
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 SQL_PATH = Path(__file__).with_name("sql") / "gdelt_housing_articles.sql"
 
-# GDELT GKG themes that are about housing markets, chosen from real data
-# (keyword matches like 'RENT' or 'HOUS' also catch UNREST_BELLIGERENT,
-# EPU_POLICY_WHITE_HOUSE, WAREHOUSING...). Broad ones such as NEW_CONSTRUCTION
-# and PROPERTY_LAWS are left out.
-HOUSING_THEMES = [
-    "ECON_HOUSING_PRICES",
-    "WB_612_HOUSING_FINANCE",
-    "WB_817_LAND_AND_HOUSING",
-    "WB_904_HOUSING_MARKETS",
-    "WB_870_HOUSING_CONSTRUCTION",
-    "WB_2186_SOCIAL_HOUSING",
-    "WB_1722_HOUSING_POLICY_AND_INSTITUTIONS",
-    "TAX_FNCACT_LANDLORD",
-    "TAX_FNCACT_LANDLORDS",
-]
+# The housing theme allowlist lives in gdelt_themes (shared with the live producer).
 
 DEFAULT_MAX_GB_PER_QUERY = 60.0  # ~7 months of news; a month is ~9 GB
 

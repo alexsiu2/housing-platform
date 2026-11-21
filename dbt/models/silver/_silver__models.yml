@@ -216,3 +216,26 @@ models:
     columns:
       - name: week_start
         data_tests: [unique, not_null]
+
+  - name: silver_news_items
+    description: >
+      Streamed news items (RSS, live GDELT) deduped across sources and tagged
+      with metros (design §9.3). Grain: item_key x metro_tag, where metro_tag
+      is a CBSA code or 'national'. metro_tag_method says how it was tagged
+      (gdelt_geo, keyword, national). Input to the weekly LLM outlook.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [item_key, metro_tag]
+    columns:
+      - name: item_key
+        data_tests: [not_null]
+      - name: metro_tag
+        data_tests: [not_null]
+      - name: metro_tag_method
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [subreddit, gdelt_geo, keyword, national]
+      - name: week_start
+        data_tests: [not_null]

@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_news__events
+    description: >
+      Streamed news items (bronze.news_events_raw) with excluded GDELT
+      domains and untitled items removed, plus a canonical URL for
+      cross-source dedupe. Grain: item_key = md5(source | source_id).
+    columns:
+      - name: item_key
+        data_tests: [unique, not_null]
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [rss, reddit, gdelt]
+      - name: published_at
+        data_tests: [not_null]
+      - name: tone
+        data_tests:
+          - value_between:
+              arguments: {min_value: -100, max_value: 100}

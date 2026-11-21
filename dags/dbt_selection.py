@@ -20,7 +20,12 @@ ASSET_SELECTORS = {
     "bronze.fema_nri_raw": "source:bronze.fema_nri_raw+",
     "bronze.gdelt_housing_articles_raw": "source:bronze.gdelt_housing_articles_raw+",
     "silver_spark.zip_lending_activity": "source:silver_spark.zip_lending_activity+",
+    "bronze.news_events_raw": "source:bronze.news_events_raw+",
 }
+
+# dbt_build's daily scheduled run: only the streamed news, which changes every
+# 15 minutes but is not an asset trigger (dags/stream_news_to_bronze.py).
+DAILY_SELECT = ASSET_SELECTORS["bronze.news_events_raw"]
 
 FULL_BUILD = "source:bronze+ source:silver_spark+"
 

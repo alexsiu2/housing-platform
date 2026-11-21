@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred backfill-zillow load-hud backfill-bls load-census load-nri backfill-gdelt score export-dashboard dashboard dashboard-build up-spark backfill-hmda smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud backfill-bls load-census load-nri backfill-gdelt up-streaming score export-dashboard dashboard dashboard-build up-spark backfill-hmda smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -36,8 +36,12 @@ up: port-check  ## Start the core local stack (SeaweedFS + Airflow)
 port-check:  ## Fail early, naming the culprit, if the Airflow port (AIRFLOW_PORT) is taken
 	@scripts/check_port.sh
 
-down:  ## Stop the local stack, including Spark if running (keeps data volumes)
-	$(COMPOSE) --profile spark down
+down:  ## Stop the local stack, including Spark/streaming if running (keeps data volumes)
+	$(COMPOSE) --profile spark --profile streaming down
+
+up-streaming: port-check  ## Start the core stack + Kafka, Schema Registry, Kafka UI (:8091) and the news producers
+	mkdir -p logs/airflow data
+	$(COMPOSE) --profile streaming up -d --build
 
 up-spark: port-check  ## Start the core stack + Spark master/worker (needs ~10 GB Docker memory)
 	mkdir -p logs/airflow data

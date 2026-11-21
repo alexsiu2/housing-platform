@@ -45,4 +45,15 @@ def test_every_dbt_trigger_asset_has_a_selector():
     }
     triggers = [t.strip() for t in block.split(",") if t.strip()]
     assert set(triggers) == set(names), "update this test's name map for new assets"
-    assert {names[t] for t in triggers} == set(sel.ASSET_SELECTORS)
+    # Every selector is a trigger, except the streamed news (built daily).
+    assert {names[t] for t in triggers} == set(sel.ASSET_SELECTORS) - {
+        "bronze.news_events_raw"
+    }
+
+
+def test_streamed_news_is_daily_not_a_trigger():
+    """Every-15-minute news must not trigger dbt (and rescoring) each time."""
+    src = (Path(__file__).resolve().parents[1] / "dags" / "rpof_assets.py").read_text()
+    block = src.split("DBT_TRIGGERS = [", 1)[1].split("]", 1)[0]
+    assert "BRONZE_NEWS" not in block
+    assert sel.DAILY_SELECT == "source:bronze.news_events_raw+"
