@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: stg_gdelt__housing_articles
+    description: >
+      GDELT US housing articles (excluded sources removed). Grain is
+      article_key = (GDELT record id, url): GDELT now and then reuses an id.
+    columns:
+      - name: article_key
+        data_tests: [unique, not_null]
+      - name: tone
+        data_tests:
+          - value_between:
+              arguments: {min_value: -100, max_value: 100}

@@ -18,6 +18,7 @@ ASSET_SELECTORS = {
     "bronze.bls_ces_raw": "source:bronze.bls_ces_raw+",
     "bronze.census_acs_raw": "source:bronze.census_acs_raw+",
     "bronze.fema_nri_raw": "source:bronze.fema_nri_raw+",
+    "bronze.gdelt_housing_articles_raw": "source:bronze.gdelt_housing_articles_raw+",
     "silver_spark.zip_lending_activity": "source:silver_spark.zip_lending_activity+",
 }
 

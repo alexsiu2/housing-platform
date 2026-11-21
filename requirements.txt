@@ -7,3 +7,5 @@ python-dotenv==1.2.4
 boto3==1.44.0
 great_expectations==1.24.1
 pyyaml==6.0.3
+# GDELT via BigQuery (ingestion/gdelt_client.py)
+google-cloud-bigquery==3.47.0

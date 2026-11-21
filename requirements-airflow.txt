@@ -10,3 +10,5 @@ great_expectations==1.24.1
 # scoring/score.py (reads/writes the DuckDB warehouse)
 duckdb==2.0.0
 pyyaml==6.0.3
+# GDELT via BigQuery (ingestion/gdelt_client.py)
+google-cloud-bigquery==3.47.0

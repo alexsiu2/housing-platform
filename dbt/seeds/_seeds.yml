@@ -1,0 +1,11 @@
+version: 2
+
+seeds:
+  - name: gdelt_excluded_sources
+    description: >
+      News domains excluded from GDELT housing tone: press-release wires and
+      auto-generated stock-news sites, whose templated posts GDELT tags as
+      housing finance. Review and extend freely; one row per domain.
+    columns:
+      - name: source
+        data_tests: [unique, not_null]

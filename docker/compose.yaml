@@ -47,6 +47,8 @@ x-airflow-common: &airflow-common
     DBT_THREADS: ${DBT_THREADS:-1}
     # Spark (profile `spark`): jobs/ are submitted from Airflow in client mode.
     SPARK_MASTER_URL: spark://spark-master:7077
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/gcp/adc.json
+    GCP_PROJECT: ${GCP_PROJECT:-}
     AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
   volumes:
     - ../dags:/opt/airflow/dags
@@ -58,6 +60,9 @@ x-airflow-common: &airflow-common
     - ../serving:/opt/airflow/project/serving
     - ../config:/opt/airflow/project/config
     - ../jobs:/opt/airflow/project/jobs
+    # Keyless GCP auth for GDELT (BigQuery): only the ADC file, read-only. It
+    # impersonates the least-privilege reader service account; see README.
+    - ${GCP_ADC_FILE:-${HOME}/.config/gcloud/application_default_credentials.json}:/opt/airflow/gcp/adc.json:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on: &airflow-common-depends-on
     postgres:

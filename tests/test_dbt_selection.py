@@ -41,6 +41,7 @@ def test_every_dbt_trigger_asset_has_a_selector():
         "BRONZE_CENSUS_ACS": "bronze.census_acs_raw",
         "SILVER_SPARK_LENDING": "silver_spark.zip_lending_activity",
         "BRONZE_FEMA_NRI": "bronze.fema_nri_raw",
+        "BRONZE_GDELT": "bronze.gdelt_housing_articles_raw",
     }
     triggers = [t.strip() for t in block.split(",") if t.strip()]
     assert set(triggers) == set(names), "update this test's name map for new assets"

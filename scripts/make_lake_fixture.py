@@ -287,6 +287,39 @@ def build_nri(lake_root: str) -> dict:
     return merge_to_delta(df, uri, keys=nri_pipeline.BRONZE_KEYS, run_id="fixture")
 
 
+def build_gdelt(lake_root: str) -> dict:
+    """bronze.gdelt_housing_articles_raw: a few weeks of synthetic articles."""
+    from ingestion import gdelt_pipeline
+
+    rows = []
+    for week in range(4):
+        for i, zip_code in enumerate(FIXTURE_ZIPS):
+            for n in range(3 + i):
+                day = 20251201 + week * 7
+                rows.append(
+                    {
+                        "article_id": f"{day}120000-{i}-{n}",
+                        "gdelt_timestamp": day * 1_000_000 + 120000,
+                        "url": f"https://news.example/{day}/{i}/{n}",
+                        "source": "news.example" if n else "prnewswire.com",
+                        "tone": -1.0 + 0.5 * i,
+                        "housing_themes": ["ECON_HOUSING_PRICES"],
+                        "zctas": [zip_code],
+                        "places": ["Fixture City"],
+                    }
+                )
+    df = gdelt_pipeline.parse_rows(rows)
+    df["source_file"] = "fixture://gdelt"
+    df["ingested_at"] = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    df["year"] = pd.to_datetime(df["published_date"]).dt.year.astype("int32")
+    uri = f"{lake_root}/bronze/{gdelt_pipeline.BRONZE_TABLE}"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    return merge_to_delta(
+        df, uri, keys=gdelt_pipeline.BRONZE_KEYS, partition_by=["year"],
+        run_id="fixture",
+    )  # fmt: skip
+
+
 def build(lake_root: str, start: str, end: str) -> dict:
     fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
     frames = []
@@ -320,6 +353,7 @@ def main() -> None:
     print(build_census_and_bls(root, args.start, args.end))
     print({"lending": build_lending(root, args.start, args.end)})
     print({"nri": build_nri(root)})
+    print({"gdelt": build_gdelt(root)})
 
 
 if __name__ == "__main__":

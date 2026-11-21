@@ -242,3 +242,28 @@ def _fema_nri_suite() -> gx.ExpectationSuite:
 def validate_fema_nri(df: pd.DataFrame) -> dict:
     """Validate parsed NRI tracts; raise DataQualityError on failure."""
     return _raise_on_failure(_run_suite(df, _fema_nri_suite()))
+
+
+def _gdelt_suite() -> gx.ExpectationSuite:
+    e = gx.expectations
+    return gx.ExpectationSuite(
+        name="gdelt_housing_articles",
+        expectations=[
+            e.ExpectTableRowCountToBeBetween(min_value=1),
+            e.ExpectColumnValuesToNotBeNull(column="article_id"),
+            # GDELT reuses a record id for distinct articles now and then.
+            e.ExpectCompoundColumnsToBeUnique(column_list=["article_id", "url"]),
+            e.ExpectColumnValuesToNotBeNull(column="published_date"),
+            e.ExpectColumnValuesToNotBeNull(column="url"),
+            # GDELT tone is roughly -100..+100; real articles sit near -20..+20.
+            e.ExpectColumnValuesToBeBetween(
+                column="tone", min_value=-100, max_value=100
+            ),
+            _not_in_future("published_at"),
+        ],
+    )
+
+
+def validate_gdelt_articles(df: pd.DataFrame) -> dict:
+    """Validate GDELT housing articles; raise DataQualityError on failure."""
+    return _raise_on_failure(_run_suite(df, _gdelt_suite()))
