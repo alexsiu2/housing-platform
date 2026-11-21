@@ -123,6 +123,12 @@ make backfill-hmda                     # 2018 through last year, in Airflow; or 
 
 Spark is sized to 2 cores / 2.5 GB because the Docker VM is shared; stop it when the load is done (`docker compose -f docker/compose.yaml --profile spark stop spark-master spark-worker`). Tract boundaries changed in 2020, and HMDA and HUD switched in different years, so the job picks each year's crosswalk by **measured** match rate and reports it. Investor share is shown on the Zip Deep-Dive and Screener as context; it is not a score input (design §7.5).
 
+## Natural hazard (FEMA National Risk Index)
+
+Expected yearly **building** damage from natural hazards, as a share of building value, per zip (FEMA NRI tracts allocated to zips), with the top peril and a national percentile. Shown on the Zip Deep-Dive (with a warning for the riskiest 10%) and as a Screener filter. It is **context, not a score input**: high-scoring zips turned out not to skew toward hazard (design doc D14). `ingest_fema_nri` runs yearly (FEMA releases in December); `make load-nri` loads it by hand. Data comes from FEMA's own ArcGIS feature service, because fema.gov's zip downloads refuse scripted requests.
+
+Asset-triggered `dbt_build` runs rebuild only what is downstream of the data that changed (`dags/dbt_selection.py`). A FEMA update rebuilds 27 of 110 nodes in about 11 seconds instead of reloading every Bronze source.
+
 ## One warehouse writer at a time
 
 `data/rpof.duckdb` is written by Airflow (dbt, scoring, the dashboard export) and by `make dbt-build` / `make score` on the host. DuckDB's own file lock does **not** work across Docker Desktop's file sharing, so two writers once corrupted the file. Every writer now takes `data/.warehouse.lock` first (`ingestion/warehouse_lock.py`), and a second writer waits. If a crash leaves the lock behind, it is broken automatically after 3 hours, or you can remove the `data/.warehouse.lock` folder by hand. The warehouse is always rebuildable from the lake: `make dbt-build && make score`.

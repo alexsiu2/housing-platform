@@ -51,6 +51,15 @@ sources:
           delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/census_acs_raw"
           storage_options: *lake_storage
 
+      - name: fema_nri_raw
+        description: >
+          FEMA National Risk Index by census tract (2020 tracts): building value
+          and expected annual building loss, total and per peril. One row per
+          (tract, nri_release).
+        meta:
+          delta_table_path: "{{ env_var('LAKE_ROOT', 's3://rpof-lake') }}/bronze/fema_nri_raw"
+          storage_options: *lake_storage
+
       - name: bls_ces_raw
         description: BLS CES total nonfarm employment (NSA, thousands) by metro series and month.
         meta:

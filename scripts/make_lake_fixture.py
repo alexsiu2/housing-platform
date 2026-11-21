@@ -261,6 +261,32 @@ def build_lending(lake_root: str, start: str, end: str) -> dict:
     )  # fmt: skip
 
 
+def build_nri(lake_root: str) -> dict:
+    """bronze.fema_nri_raw for the fixture tracts (the shape nri_client writes)."""
+    from ingestion import nri_pipeline
+    from ingestion.nri_client import PERILS, parse_tracts
+
+    rows = []
+    for i, zip_code in enumerate(FIXTURE_ZIPS):
+        row = {
+            "TRACTFIPS": f"{36061000100 + i}",  # the tract-zip fixture tracts
+            "STCOFIPS": "36061",
+            "BUILDVALUE": 50_000_000.0,
+            "EAL_VALB": 50_000.0 * (i + 1),
+            "EAL_SCORE": 10.0 * (i + 1),
+        }
+        row.update({f"{p}_EALB": 0.0 for p in PERILS})
+        row["IFLD_EALB"] = row["EAL_VALB"] * 0.6
+        row["HRCN_EALB"] = row["EAL_VALB"] * 0.4
+        rows.append(row)
+    df = parse_tracts(rows, "2025-12-18")
+    df["source_file"] = "fixture://fema_nri"
+    df["ingested_at"] = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    uri = f"{lake_root}/bronze/{nri_pipeline.BRONZE_TABLE}"
+    Path(uri).mkdir(parents=True, exist_ok=True)
+    return merge_to_delta(df, uri, keys=nri_pipeline.BRONZE_KEYS, run_id="fixture")
+
+
 def build(lake_root: str, start: str, end: str) -> dict:
     fetched = datetime(2026, 1, 1, tzinfo=timezone.utc)
     frames = []
@@ -293,6 +319,7 @@ def main() -> None:
     print(build_zillow_and_hud(root, args.start, args.end))
     print(build_census_and_bls(root, args.start, args.end))
     print({"lending": build_lending(root, args.start, args.end)})
+    print({"nri": build_nri(root)})
 
 
 if __name__ == "__main__":

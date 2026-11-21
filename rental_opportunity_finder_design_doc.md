@@ -338,7 +338,7 @@ A zip is scored only if yield, rent growth and affordability are all present, an
 
 | Candidate | Source | Direction | Notes |
 |---|---|---|---|
-| `score_investor_competition` | HMDA investor share | **lower** = better (less competition) | Debatable direction — high share can also signal a proven rental market. Evaluate before adding. |
+| `score_investor_competition` | HMDA investor share | **lower** = better (less competition) | Evaluated 2026-11 (D14): no consistent predictive signal; kept as context. |
 | `score_market_sentiment` | `gold_metro_news_outlook` + GDELT tone | more positive = better | Add only after ≥3 months of history; cap weight at 5–10%. |
 
 Any v2 change ships as a new `weights_version` with a before/after comparison of the top 50.
@@ -740,6 +740,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | D11 | SeaweedFS for local object storage | MinIO | MinIO's community Docker images are no longer published on Docker Hub; SeaweedFS is Apache-2.0 and S3-compatible, so boto3/deltalake/DuckDB code is unchanged |
 | D12 | Pinned open-source Evidence 40.x, reading a serving extract (`data/dashboard.duckdb`) | Evidence Studio; Streamlit; dashboard reads the warehouse directly | By Phase 4, Evidence had moved to the account-based Evidence Studio (curl-installed CLI, login, cloud warehouse by default). The open-source 40.x still matches this design (local, DuckDB, static build, no account) but gets no further upstream fixes. Evidence's DuckDB 1.4 can't read the DuckDB 2.0 warehouse, and a reader would block dbt's write lock, so `serving/dashboard_export.py` writes a separate extract in v1.4 storage format. The extract is tool-agnostic, so swapping the front end later is cheap. Cost: `npm audit` reports 57 unfixable advisories (mostly build/dev tooling); fine for localhost, but re-evaluate before a public deploy in Phase 8. |
 | D13 | Spark 4.2.0 + Delta 4.4.1 (Java 21, Hadoop 3.5.0 / hadoop-aws 3.5.0), standalone master + 1 worker; driver in Airflow (client mode) | Spark 4.3 (no Delta release supports it yet); Spark 3.5; DockerOperator | Delta 4.4.1 supports Spark ≤ 4.2.0. The Airflow 3.4 image is Debian 13 (Java 21/25 only), so Spark uses its Java 21 image too. PySpark is pinned twice (`pyspark` and `pyspark-client`, which the Spark provider pulls in and which overwrites the same module folder). Jars are SHA-1-verified at build. DockerOperator was rejected: it needs the Docker socket inside Airflow. Spark runs only for HMDA loads (`make up-spark`); the 8 GB Docker VM is shared, so Spark is sized to 2 cores / 2.5 GB. |
+| D14 | Hazard (FEMA NRI) and HMDA investor share are dashboard **context**, not score inputs | Hazard sub-score; investor sub-score (+ or −) | Measured before deciding (2026-11-20). Hazard: high-scoring zips don't skew risky (score vs. expected building-loss rate ρ = −0.21; 2% of the top 100 in the riskiest decile vs. 10% overall), so a sub-score would mostly nudge two Louisiana zips. Uses FEMA's expected *building* loss ÷ building value, not the composite RISK_SCORE, which folds in social vulnerability (income/demographics). Investor share: barely predicts next-year rent or value growth (ρ −0.15 to +0.12, sign flips by year), so no direction is supported. Both are shown on the Zip Deep-Dive and as Screener columns/filters. |
 
 ---
 

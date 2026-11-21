@@ -75,7 +75,29 @@ def warehouse(tmp_path):
             "is_low_sample": [False, False, True],
         }
     )
+    hazard = pd.DataFrame(
+        {
+            "zip": ["00001", "99999"],
+            **{
+                f"eal_rate_{p}_pct": [0.1, 0.2]
+                for p in [
+                    "hurricane",
+                    "coastal_flooding",
+                    "inland_flooding",
+                    "wildfire",
+                    "tornado",
+                    "strong_wind",
+                    "hail",
+                    "earthquake",
+                    "winter_weather",
+                    "landslide",
+                ]
+            },
+        }
+    )
+    hazard.loc[0, "eal_rate_wildfire_pct"] = 0.0  # zero rows are dropped
     for name, df, schema in [
+        ("silver_zip_hazard", hazard, "silver"),
         ("silver_zip_lending_activity", lending, "silver"),
         ("zip_opportunity_score", scores, "gold"),
         ("gold_zip_investment_metrics", history, "gold"),
@@ -104,6 +126,7 @@ def test_export_builds_every_table(warehouse, tmp_path):
         "zip_history": 2,  # pre-2015 row and unscored zip dropped
         "metro_summary": 1,  # zips without a CBSA excluded
         "zip_lending": 2,  # unscored zip dropped
+        "zip_hazard_perils": 9,  # 10 perils for 00001, minus the zero one
         "macro": 1,  # pre-2015 dropped
         "weights": 5,
         "build_info": 1,

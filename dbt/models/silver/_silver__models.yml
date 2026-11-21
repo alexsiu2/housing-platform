@@ -173,3 +173,23 @@ models:
         data_tests:
           - value_between:
               arguments: {min_value: 0, max_value: 1}
+
+  - name: silver_zip_hazard
+    description: >
+      FEMA NRI expected annual building loss by zip (% of building value),
+      total and per peril, with a national percentile. Context only, not scored.
+    columns:
+      - name: zip
+        data_tests: [unique, not_null]
+      - name: eal_rate_pct
+        description: Expected annual building loss from natural hazards, % of building value.
+        data_tests:
+          - not_null
+          - value_between:
+              arguments: {min_value: 0, max_value: 10}
+      - name: is_high_hazard
+        description: In the riskiest 10% of zips nationally by eal_rate_pct.
+      - name: top_peril_share
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}

@@ -57,6 +57,11 @@ jobs as (
     where yoy_job_growth_pct is not null
 ),
 
+hazard as (
+    select zip, eal_rate_pct, top_peril, hazard_percentile, is_high_hazard, nri_release
+    from {{ ref('silver_zip_hazard') }}
+),
+
 lending as (
     select
         zip, activity_year, investor_purchase_share, purchase_loans_est,
@@ -93,11 +98,18 @@ select
     l.purchase_loans_est,
     l.purchase_loan_count_yoy_pct,
     l.is_low_sample as lending_low_sample,
-    l.activity_year as lending_data_vintage
+    l.activity_year as lending_data_vintage,
+    -- FEMA NRI (static release, not point-in-time; context only)
+    h.eal_rate_pct as hazard_eal_rate_pct,
+    h.top_peril as hazard_top_peril,
+    h.hazard_percentile,
+    h.is_high_hazard,
+    h.nri_release as hazard_nri_release
 from with_demographics as w
 asof left join jobs
     on jobs.cbsa_code = w.cbsa_code
     and w.month >= jobs.job_growth_month
+left join hazard as h on h.zip = w.zip
 left join lending as l
     on l.zip = w.zip
     and l.activity_year = (

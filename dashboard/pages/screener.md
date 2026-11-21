@@ -27,6 +27,11 @@ select distinct state from rpof.scores order by state
   <ButtonGroupItem valueLabel="Only zips with job data" value="exclude" />
 </ButtonGroup>
 
+<ButtonGroup name=hazard title="Natural hazard (FEMA)">
+  <ButtonGroupItem valueLabel="Include all" value="include" default />
+  <ButtonGroupItem valueLabel="Exclude riskiest 10%" value="exclude" />
+</ButtonGroup>
+
 ```sql results
 select
     national_rank, zip, city, state, metro, opportunity_score, tier,
@@ -34,6 +39,7 @@ select
     score_entry_price, score_demand_growth,
     gross_rental_yield_pct, rent_growth_1yr_pct, rent_to_income_ratio,
     price_to_income_ratio, yoy_job_growth_pct, investor_purchase_share,
+    hazard_eal_rate_pct, is_high_hazard,
     home_value, rent_index, partial_score
 from rpof.scores
 where state in ${inputs.states.value}
@@ -42,6 +48,7 @@ where state in ${inputs.states.value}
   and gross_rental_yield_pct >= ${inputs.min_yield}
   and (${inputs.max_price} >= 2500 or home_value <= ${inputs.max_price} * 1000)
   and ('${inputs.partial}' = 'include' or not partial_score)
+  and ('${inputs.hazard}' = 'include' or not coalesce(is_high_hazard, false))
 order by national_rank
 ```
 
@@ -64,6 +71,7 @@ select count(*) as n from ${results}
   <Column id=price_to_income_ratio title="Price / income" fmt=num1 />
   <Column id=yoy_job_growth_pct title="Jobs %" fmt=num1 />
   <Column id=investor_purchase_share title="Investor share" fmt=pct1 />
+  <Column id=hazard_eal_rate_pct title="Hazard loss %" fmt="0.000" />
   <Column id=home_value title="Home value" fmt=usd0 />
   <Column id=rent_index title="Rent" fmt=usd0 />
   <Column id=partial_score title="Partial" />
