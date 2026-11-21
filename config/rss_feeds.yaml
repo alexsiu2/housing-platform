@@ -1,0 +1,20 @@
+# RSS feeds for streaming/rss_producer.py (design doc §5.2, §9.1).
+# Headlines and feed summaries only, never scraped article bodies. Every feed
+# must allow our user agent in robots.txt (checked at runtime too) and not
+# block automated readers. Checked 2026-11-21:
+#   - news.google.com disallows all crawlers in robots.txt -> not used, so
+#     metro-level news comes from live GDELT instead.
+#   - zillow.com, inman.com and therealdeal.com return 403 to feed readers.
+#   - Calculated Risk stopped publishing in January 2026.
+poll_minutes: 15
+feeds:
+  - name: housingwire
+    url: https://www.housingwire.com/feed/
+  - name: redfin_news
+    url: https://www.redfin.com/news/feed/
+  - name: realtor_research
+    url: https://www.realtor.com/research/feed/
+  - name: cnbc_real_estate
+    url: https://www.cnbc.com/id/10000115/device/rss/rss.html
+  - name: multifamily_dive
+    url: https://www.multifamilydive.com/feeds/news/

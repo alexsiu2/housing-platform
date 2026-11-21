@@ -61,7 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: docker compose config
-        run: docker compose -f docker/compose.yaml --profile core config -q
+        run: |
+          docker compose -f docker/compose.yaml --profile core config -q
+          docker compose -f docker/compose.yaml --profile core --profile spark --profile streaming config -q
+
+      - name: Build news producer image
+        run: docker compose -f docker/compose.yaml --profile streaming build rss-producer
 
       - name: Build Airflow image
         run: docker compose -f docker/compose.yaml --profile core build airflow-scheduler
@@ -84,7 +89,7 @@ jobs:
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))
-          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report', 'spark_hmda', 'ingest_fema_nri', 'ingest_gdelt_news'}
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report', 'spark_hmda', 'ingest_fema_nri', 'ingest_gdelt_news', 'stream_news_to_bronze'}
           sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
           "
 
@@ -112,10 +117,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install PySpark (same version as the cluster image)
-        run: pip install pyspark==4.2.0 pytest==9.2.0
+        run: pip install pyspark==4.2.0 pytest==9.2.0 fastavro==1.13.1
 
       - name: HMDA job logic on a local Spark session
         run: python -m pytest tests/test_hmda_lar.py -v
+
+      - name: News stream job logic on a local Spark session
+        # Its own process: the Spark JVM must start with spark-avro (pulled
+        # from Maven Central); a session reused from another test can't add it.
+        run: python -m pytest tests/test_stream_news.py -v
 
   dashboard:
     name: Dashboard build (Evidence)

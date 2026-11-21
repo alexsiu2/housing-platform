@@ -1,10 +1,11 @@
 """
-Build and test dbt models whenever a Bronze table updates.
+Build and test dbt models whenever a Bronze table updates, plus once a day.
 
 Scheduled on any Bronze asset update (rpof_assets.ANY_BRONZE_UPDATE): a
-successful ingest_fred, ingest_zillow or ingest_hud_crosswalk run rebuilds
-everything downstream of Bronze and runs its tests. Any failing test (not
-warning) fails the task.
+successful ingest run rebuilds only what is downstream of the table that
+changed (dbt_selection) and runs its tests. A daily 06:30 UTC run builds
+the streamed news models, which update every 15 minutes without an asset
+trigger. Any failing test (not warning) fails the task.
 
 dbt lives in its own virtualenv in the image (/opt/dbt-venv) so its pins
 never fight Airflow's. Artifacts and logs go to /tmp, not the mounted repo.
@@ -13,6 +14,8 @@ never fight Airflow's. Artifacts and logs go to /tmp, not the mounted repo.
 from datetime import datetime, timedelta
 
 from airflow.sdk import Param, dag, task
+from airflow.timetables.assets import AssetOrTimeSchedule
+from airflow.timetables.trigger import CronTriggerTimetable
 
 from rpof_assets import ANY_BRONZE_UPDATE, GOLD_METRICS
 
@@ -28,7 +31,10 @@ def _alert(context):
 
 @dag(
     dag_id="dbt_build",
-    schedule=ANY_BRONZE_UPDATE,
+    schedule=AssetOrTimeSchedule(
+        timetable=CronTriggerTimetable("30 6 * * *", timezone="UTC"),
+        assets=ANY_BRONZE_UPDATE,
+    ),
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -64,13 +70,19 @@ def dbt_build():
         append_env=True,
     )
     def build(params=None, triggering_asset_events=None, dag_run=None) -> str:
-        from dbt_selection import FULL_BUILD, selector_for
+        from dbt_selection import DAILY_SELECT, FULL_BUILD, selector_for
 
         # Asset-triggered: build only downstream of what changed (a full
-        # rebuild reloads every Bronze source and was OOM-killed). Manual
-        # runs use the `select` param (default: everything).
+        # rebuild reloads every Bronze source and was OOM-killed). The daily
+        # time-based run builds the streamed news. Manual runs use the
+        # `select` param (default: everything).
         triggered = [a.name for a in (triggering_asset_events or {})]
-        select = selector_for(triggered) if triggered else params["select"]
+        if triggered:
+            select = selector_for(triggered)
+        elif dag_run is not None and dag_run.run_type == "scheduled":
+            select = DAILY_SELECT
+        else:
+            select = params["select"]
         if select != FULL_BUILD:
             print(f"Selective build for {triggered}: {select}")
         # One writer at a time: DuckDB's own file lock does not work across

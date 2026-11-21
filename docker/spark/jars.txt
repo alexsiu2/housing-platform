@@ -8,3 +8,11 @@ org/apache/hadoop/hadoop-aws/3.5.0/hadoop-aws-3.5.0.jar 9e594525d264c0db653c7f68
 software/amazon/s3/analyticsaccelerator/analyticsaccelerator-s3/1.3.1/analyticsaccelerator-s3-1.3.1.jar 6c9bd0f6c440c9a78e82d272f5f0252d942419f6
 # AWS SDK v2 version pinned by hadoop-project 3.5.0 (~650 MB).
 software/amazon/awssdk/bundle/2.35.4/bundle-2.35.4.jar 7252265e3970b214708e68a8b74a8fa8c875af1e
+# Kafka source + Avro for jobs/stream_news_to_bronze.py (Phase 6). Versions from
+# spark-parent 4.2.0 (kafka.version 3.9.2, commons-pool2 2.13.1); Avro itself,
+# lz4/snappy/zstd and scala-parallel-collections already ship with Spark.
+org/apache/spark/spark-sql-kafka-0-10_2.13/4.2.0/spark-sql-kafka-0-10_2.13-4.2.0.jar 98f199d5da59b1e152dae941cc5037a6495464ad
+org/apache/spark/spark-token-provider-kafka-0-10_2.13/4.2.0/spark-token-provider-kafka-0-10_2.13-4.2.0.jar 807ceb26e2fa509259e74a202d5f2d790446f515
+org/apache/spark/spark-avro_2.13/4.2.0/spark-avro_2.13-4.2.0.jar f7bac541fa1d649096b85dcf3ffbef033c7c321c
+org/apache/kafka/kafka-clients/3.9.2/kafka-clients-3.9.2.jar a06edbaa01458ed2e8cf1be69a18c2f231fda6e0
+org/apache/commons/commons-pool2/2.13.1/commons-pool2-2.13.1.jar cf7e8c0242d4c483c42c083b8188ab360ab60f9a
