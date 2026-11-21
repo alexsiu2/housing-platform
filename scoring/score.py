@@ -43,6 +43,8 @@ CONTEXT_COLUMNS = [
     # HMDA investor activity: context only, not a sub-score (design §7.5).
     "investor_purchase_share", "purchase_loans_est", "lending_data_vintage",
     "lending_low_sample",
+    # FEMA NRI hazard: context only, not a sub-score (owner's decision).
+    "hazard_eal_rate_pct", "hazard_top_peril", "hazard_percentile", "is_high_hazard",
 ]  # fmt: skip
 
 

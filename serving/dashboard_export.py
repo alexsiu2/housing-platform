@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 SERVING_STORAGE_VERSION = "v1.4.0"
 HISTORY_START = "2015-01-01"  # ZORI rents start in 2015
 
+# FEMA NRI perils, as named in silver_zip_hazard (eal_rate_<peril>_pct).
+PERILS = [
+    "hurricane", "coastal_flooding", "inland_flooding", "wildfire", "tornado",
+    "strong_wind", "hail", "earthquake", "winter_weather", "landslide",
+]  # fmt: skip
+
 # table name -> SQL over the attached warehouse `wh`
 TABLES = {
     "scores": "select * from wh.gold.zip_opportunity_score",
@@ -67,6 +73,16 @@ TABLES = {
                l.median_loan_amount_est, l.is_low_sample
         from wh.silver.silver_zip_lending_activity as l
         where l.zip in (select zip from wh.gold.zip_opportunity_score)
+    """,
+    # FEMA NRI per-peril expected building loss, long format for charting.
+    "zip_hazard_perils": f"""
+        select zip, peril, eal_rate_pct
+        from (
+            select zip, {", ".join(f"eal_rate_{p}_pct as {p}" for p in PERILS)}
+            from wh.silver.silver_zip_hazard
+            where zip in (select zip from wh.gold.zip_opportunity_score)
+        ) unpivot (eal_rate_pct for peril in ({", ".join(PERILS)}))
+        where eal_rate_pct > 0
     """,
     "macro": f"""
         select month, mortgage_rate_30yr, unemployment_rate, housing_starts_k,

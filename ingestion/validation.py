@@ -219,3 +219,26 @@ def _census_suite() -> gx.ExpectationSuite:
 def validate_census_acs(df: pd.DataFrame) -> dict:
     """Validate parsed ACS rows; raise DataQualityError on failure."""
     return _raise_on_failure(_run_suite(df, _census_suite()))
+
+
+def _fema_nri_suite() -> gx.ExpectationSuite:
+    e = gx.expectations
+    return gx.ExpectationSuite(
+        name="fema_nri",
+        expectations=[
+            # ~85k census tracts nationally; a partial pull would be far fewer.
+            e.ExpectTableRowCountToBeBetween(min_value=80000),
+            e.ExpectColumnValuesToNotBeNull(column="tract"),
+            e.ExpectColumnValuesToMatchRegex(column="tract", regex=r"^\d{11}$"),
+            e.ExpectCompoundColumnsToBeUnique(column_list=["tract", "nri_release"]),
+            e.ExpectColumnValuesToBeBetween(column="eal_building", min_value=0),
+            e.ExpectColumnValuesToBeBetween(column="building_value", min_value=0),
+            # A handful of tracts (water, unpopulated) have no building value.
+            e.ExpectColumnValuesToNotBeNull(column="building_value", mostly=0.99),
+        ],
+    )
+
+
+def validate_fema_nri(df: pd.DataFrame) -> dict:
+    """Validate parsed NRI tracts; raise DataQualityError on failure."""
+    return _raise_on_failure(_run_suite(df, _fema_nri_suite()))

@@ -30,6 +30,7 @@ BRONZE_HUD_CROSSWALK = _bronze("hud_crosswalk_raw")
 BRONZE_BLS_CES = _bronze("bls_ces_raw")
 BRONZE_CENSUS_ACS = _bronze("census_acs_raw")
 BRONZE_HMDA = _bronze("hmda_lar_raw")
+BRONZE_FEMA_NRI = _bronze("fema_nri_raw")
 
 # Spark-produced aggregate (design §6.1: silver_spark/ tables are dbt sources).
 SILVER_SPARK_LENDING = Asset(
@@ -58,6 +59,7 @@ DBT_TRIGGERS = [
     BRONZE_BLS_CES,
     BRONZE_CENSUS_ACS,
     SILVER_SPARK_LENDING,
+    BRONZE_FEMA_NRI,
 ]
 
 # Triggers when any one of them updates.

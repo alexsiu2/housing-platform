@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: stg_fema__nri
+    description: FEMA NRI tracts from the newest release. Grain is tract.
+    columns:
+      - name: tract
+        data_tests: [unique, not_null]
+      - name: eal_building
+        data_tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1000000000000}

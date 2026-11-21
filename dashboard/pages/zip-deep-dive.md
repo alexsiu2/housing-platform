@@ -15,7 +15,8 @@ order by national_rank
 <Dropdown data={zip_options} name=zip value=zip label=label title="Zip code" defaultValue="70601" order="national_rank" />
 
 ```sql z
-select * from rpof.scores where zip = '${inputs.zip.value}'
+select *, replace(hazard_top_peril, '_', ' ') as hazard_top_peril_label
+from rpof.scores where zip = '${inputs.zip.value}'
 ```
 
 ```sql total
@@ -121,6 +122,34 @@ No HMDA lending data for this zip.
 {/if}
 
 <BarChart data={lending} x=activity_year y=investor_purchase_share title="Investor share of home purchases by year" yFmt=pct0 xType=category emptySet=pass emptyMessage="No HMDA history for this zip." />
+
+## Natural hazard (FEMA)
+
+Expected yearly **building** damage from natural hazards, as a share of building value (FEMA National Risk Index, tracts allocated to the zip). Roughly what insurance has to cover on average; it does not capture insurance-market shocks. Shown for context, not part of the score.
+
+```sql hazard_perils
+select
+    replace(peril, '_', ' ') as peril,
+    eal_rate_pct
+from rpof.zip_hazard_perils
+where zip = '${inputs.zip.value}'
+order by eal_rate_pct desc
+```
+
+{#if z[0].hazard_eal_rate_pct != null}
+{#if z[0].is_high_hazard}
+<Alert status=warning>
+High hazard: this zip is in the riskiest 10% nationally for expected building loss (mostly {z[0].hazard_top_peril_label}).
+</Alert>
+{/if}
+<BigValue data={z} value=hazard_eal_rate_pct title="Expected yearly building loss (% of value)" fmt="0.000" />
+<BigValue data={z} value=hazard_percentile title="National percentile (100 = riskiest)" fmt=num0 />
+<BigValue data={z} value=hazard_top_peril_label title="Top peril" />
+
+<BarChart data={hazard_perils} x=peril y=eal_rate_pct swapXY=true title="Expected yearly building loss by peril (% of value)" yFmt="0.000" sort=false emptySet=pass emptyMessage="No hazard detail for this zip." />
+{:else}
+No FEMA hazard data for this zip.
+{/if}
 
 ## History
 
