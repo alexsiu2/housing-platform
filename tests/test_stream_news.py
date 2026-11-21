@@ -3,7 +3,8 @@
 Skipped where PySpark/Java aren't installed (e.g. the dev venv); runs in CI's
 Spark job and inside the Airflow image. Avro decoding needs spark-avro: the
 Airflow image has it in /opt/rpof-spark-jars; elsewhere it is fetched from
-Maven Central (spark.jars.packages).
+Maven Central (spark.jars.packages). Packages load only when the Spark JVM
+starts, so run this file in its own pytest process (as CI does).
 """
 
 import io
