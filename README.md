@@ -13,8 +13,8 @@ See the full design: [`rental_opportunity_finder_design_doc.md`](rental_opportun
 | 2 | Zillow rents + home values, HUD zip↔metro/tract crosswalks | ✅ |
 | 3 | Census ACS + BLS jobs, Gold metrics, opportunity score, data-quality alerts | ✅ |
 | 4 | Dashboard: overview, zip deep-dive, metros, screener (**MVP**) | ✅ |
-| 5 | Spark batch: HMDA mortgage records → investor purchase share by zip (GDELT history to follow) | ✅ HMDA |
-| 5–9 | Spark (HMDA/GDELT), Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
+| 5 | Spark batch: HMDA mortgage records → investor purchase share by zip; GDELT housing news via BigQuery | ✅ |
+| 6–9 | Kafka streaming + LLM outlook, lineage/monitoring, cloud | Planned |
 
 ## Stack (current)
 
@@ -128,6 +128,20 @@ Spark is sized to 2 cores / 2.5 GB because the Docker VM is shared; stop it when
 Expected yearly **building** damage from natural hazards, as a share of building value, per zip (FEMA NRI tracts allocated to zips), with the top peril and a national percentile. Shown on the Zip Deep-Dive (with a warning for the riskiest 10%) and as a Screener filter. It is **context, not a score input**: high-scoring zips turned out not to skew toward hazard (design doc D14). `ingest_fema_nri` runs yearly (FEMA releases in December); `make load-nri` loads it by hand. Data comes from FEMA's own ArcGIS feature service, because fema.gov's zip downloads refuse scripted requests.
 
 Asset-triggered `dbt_build` runs rebuild only what is downstream of the data that changed (`dags/dbt_selection.py`). A FEMA update rebuilds 27 of 110 nodes in about 11 seconds instead of reloading every Bronze source.
+
+## Housing news (GDELT via BigQuery)
+
+GDELT's news graph is 22 TB, so the filter runs **in BigQuery** (a free public dataset) and only US housing articles come back, about 5,000 a week. They land in `bronze.gdelt_housing_articles_raw`, and dbt turns them into weekly metro volume and tone (`silver_gdelt_metro_tone`) and national tone, shown on the Metro Comparison page. `ingest_gdelt_news` runs every Monday for the last full week (~3 GB scanned); `make backfill-gdelt START=2024-01-01` loads history (~345 GB, inside the free 1 TB/month).
+
+**Setup (one time):** a Google Cloud project with the BigQuery sandbox (no billing, so it can't charge), a service account with **BigQuery Job User** only, and keyless login:
+
+```bash
+gcloud auth application-default login --impersonate-service-account=<reader>@<project>.iam.gserviceaccount.com
+```
+
+Then set `GCP_PROJECT=<project>` in `.env`. Docker mounts only that credentials file, read-only. Every query is dry-run against a budget before it runs (design doc D15).
+
+**Known gaps:** GDELT itself has almost no data for the weeks of 2025-06-16 and 2025-06-23, so those weeks are missing rather than zero. Most metros see fewer than 10 housing articles a week (`is_low_sample`), and Washington, DC picks up national policy news (`is_national_policy_hub`); the dashboard flags both.
 
 ## One warehouse writer at a time
 

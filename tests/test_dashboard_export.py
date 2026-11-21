@@ -96,7 +96,31 @@ def warehouse(tmp_path):
         }
     )
     hazard.loc[0, "eal_rate_wildfire_pct"] = 0.0  # zero rows are dropped
+    metro_news = pd.DataFrame(
+        {
+            "cbsa_code": ["A", "ZZ"],
+            "week_start": pd.to_datetime(["2026-11-09", "2026-11-09"]),
+            "article_count": [12, 3],
+            "avg_tone": [-0.5, 1.0],
+            "negative_articles": [3, 0],
+            "positive_articles": [2, 1],
+            "is_low_sample": [False, True],
+            "is_national_policy_hub": [False, False],
+        }
+    )
+    national_news = pd.DataFrame(
+        {
+            "week_start": pd.to_datetime(["2026-11-09"]),
+            "article_count": [4500],
+            "avg_tone": [-0.4],
+            "negative_articles": [900],
+            "positive_articles": [700],
+            "sources": [1800],
+        }
+    )
     for name, df, schema in [
+        ("silver_gdelt_metro_tone", metro_news, "silver"),
+        ("silver_gdelt_national_tone", national_news, "silver"),
         ("silver_zip_hazard", hazard, "silver"),
         ("silver_zip_lending_activity", lending, "silver"),
         ("zip_opportunity_score", scores, "gold"),
@@ -127,6 +151,8 @@ def test_export_builds_every_table(warehouse, tmp_path):
         "metro_summary": 1,  # zips without a CBSA excluded
         "zip_lending": 2,  # unscored zip dropped
         "zip_hazard_perils": 9,  # 10 perils for 00001, minus the zero one
+        "metro_news": 1,  # metro without scored zips dropped
+        "national_news": 1,
         "macro": 1,  # pre-2015 dropped
         "weights": 5,
         "build_info": 1,

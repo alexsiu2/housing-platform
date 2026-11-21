@@ -193,3 +193,26 @@ models:
         data_tests:
           - value_between:
               arguments: {min_value: 0, max_value: 1}
+
+  - name: silver_gdelt_metro_tone
+    description: >
+      GDELT US housing news by metro and ISO week: volume and average tone.
+      See is_low_sample and is_national_policy_hub before reading tone.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [cbsa_code, week_start]}
+    columns:
+      - name: avg_tone
+        data_tests:
+          - value_between:
+              arguments: {min_value: -100, max_value: 100}
+      - name: article_count
+        data_tests:
+          - value_between:
+              arguments: {min_value: 1, max_value: 1000000}
+
+  - name: silver_gdelt_national_tone
+    description: US housing news per ISO week (each article once).
+    columns:
+      - name: week_start
+        data_tests: [unique, not_null]

@@ -24,6 +24,7 @@ EXPECTED_CADENCE_DAYS = {
     "census_acs_raw": 366,
     # FEMA publishes NRI roughly yearly (v1.20: Dec 2025); allow a late release.
     "fema_nri_raw": 400,
+    "gdelt_housing_articles_raw": 7,
 }
 OVERDUE_FACTOR = 2
 

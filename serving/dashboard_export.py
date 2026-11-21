@@ -84,6 +84,18 @@ TABLES = {
         ) unpivot (eal_rate_pct for peril in ({", ".join(PERILS)}))
         where eal_rate_pct > 0
     """,
+    # GDELT housing news (weekly tone), for the Metro Comparison page.
+    "metro_news": """
+        select cbsa_code, week_start, article_count, avg_tone, negative_articles,
+               positive_articles, is_low_sample, is_national_policy_hub
+        from wh.silver.silver_gdelt_metro_tone
+        where cbsa_code in (select cbsa_code from wh.gold.zip_opportunity_score)
+    """,
+    "national_news": """
+        select week_start, article_count, avg_tone, negative_articles,
+               positive_articles, sources
+        from wh.silver.silver_gdelt_national_tone
+    """,
     "macro": f"""
         select month, mortgage_rate_30yr, unemployment_rate, housing_starts_k,
                cpi_shelter_yoy_pct, case_shiller_hpi_yoy_pct, median_sale_price

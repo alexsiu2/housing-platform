@@ -1,5 +1,5 @@
 .PHONY: help setup up down restart ps logs test lint format dbt-build dbt-debug compose-check \
-	backfill-fred backfill-zillow load-hud backfill-bls load-census load-nri score export-dashboard dashboard dashboard-build up-spark backfill-hmda smoke-test run-dag port-check
+	backfill-fred backfill-zillow load-hud backfill-bls load-census load-nri backfill-gdelt score export-dashboard dashboard dashboard-build up-spark backfill-hmda smoke-test run-dag port-check
 
 # Compose reads ${VAR} substitutions (AIRFLOW_PORT, AIRFLOW_UID, ...) from the
 # compose file's own directory (docker/.env) by default; use the root .env.
@@ -95,6 +95,9 @@ load-census:  ## Load ACS 5-year vintages by ZCTA, e.g. make load-census VINTAGE
 
 load-nri:  ## Load FEMA National Risk Index (hazard) tracts into Bronze
 	$(PYTHON) scripts/load_fema_nri.py
+
+backfill-gdelt:  ## Backfill GDELT housing news via BigQuery, e.g. START=2024-01-01 [END=...]
+	$(PYTHON) scripts/backfill_gdelt.py --start $(or $(START),2024-01-01) $(if $(END),--end $(END))
 
 score:  ## Compute gold.zip_opportunity_score from the latest Gold month
 	$(PYTHON) -m ingestion.warehouse_lock run -- $(PYTHON) -m scoring.score

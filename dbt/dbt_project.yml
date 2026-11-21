@@ -36,3 +36,7 @@ models:
     gold:
       +materialized: table
       +schema: gold
+
+seeds:
+  housing_platform:
+    +schema: seeds
