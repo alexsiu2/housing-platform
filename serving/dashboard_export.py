@@ -105,6 +105,41 @@ TABLES = {
 }
 
 
+# Written by llm/summarize.py, so absent until the first weekly outlook run:
+# exported empty (same columns) when the warehouse doesn't have them yet.
+OPTIONAL_TABLES = {
+    "news_outlook": (
+        "gold.metro_news_outlook",
+        """
+        -- Evidence can't load list columns: themes and risks as " · " text.
+        select cbsa_code, metro_name, week_start, outlook, confidence, summary,
+               array_to_string(key_themes, ' · ') as key_themes,
+               array_to_string(risks, ' · ') as risks,
+               item_count, relevant_item_count,
+               citation_coverage, gdelt_avg_tone,
+               model_id, prompt_version, generated_at
+        from wh.gold.metro_news_outlook
+        """,
+        "cbsa_code varchar, metro_name varchar, week_start date, outlook varchar, "
+        "confidence varchar, summary varchar, key_themes varchar, "
+        "risks varchar, item_count integer, relevant_item_count integer, "
+        "citation_coverage double, "
+        "gdelt_avg_tone double, model_id varchar, prompt_version varchar, "
+        "generated_at timestamp",
+    ),
+    "news_outlook_citations": (
+        "gold.metro_news_outlook_citations",
+        """
+        select cbsa_code, week_start, ref_number, source, outlet, title, url,
+               published_at
+        from wh.gold.metro_news_outlook_citations
+        """,
+        "cbsa_code varchar, week_start date, ref_number integer, source varchar, "
+        "outlet varchar, title varchar, url varchar, published_at timestamp",
+    ),
+}
+
+
 def serving_path() -> str:
     path = os.getenv("SERVING_DUCKDB_PATH")
     if path:
@@ -134,6 +169,22 @@ def export(
         )
         for table, sql in TABLES.items():
             con.execute(f"create table out.{table} as {sql}")
+            counts[table] = con.execute(f"select count(*) from out.{table}").fetchall()[
+                0
+            ][0]
+
+        present = {
+            f"{schema}.{name}"
+            for schema, name in con.execute(
+                "select schema_name, table_name from duckdb_tables() "
+                "where database_name = 'wh'"
+            ).fetchall()
+        }
+        for table, (source, sql, columns) in OPTIONAL_TABLES.items():
+            if source in present:
+                con.execute(f"create table out.{table} as {sql}")
+            else:
+                con.execute(f"create table out.{table} ({columns})")
             counts[table] = con.execute(f"select count(*) from out.{table}").fetchall()[
                 0
             ][0]

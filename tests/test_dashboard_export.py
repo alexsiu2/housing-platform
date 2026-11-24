@@ -156,6 +156,9 @@ def test_export_builds_every_table(warehouse, tmp_path):
         "macro": 1,  # pre-2015 dropped
         "weights": 5,
         "build_info": 1,
+        # No LLM outlook run yet: exported empty, with their columns.
+        "news_outlook": 0,
+        "news_outlook_citations": 0,
     }
     assert _read(target, "select cbsa_code, scored_zips, strong_zips, best_zip "
                  "from metro_summary") == [("A", 2, 1, "00001")]  # fmt: skip
@@ -197,3 +200,21 @@ def test_serving_path_defaults_next_to_warehouse(monkeypatch, tmp_path):
     assert dashboard_export.serving_path() == str(tmp_path / "dashboard.duckdb")
     monkeypatch.setenv("SERVING_DUCKDB_PATH", "/x/y.duckdb")
     assert dashboard_export.serving_path() == "/x/y.duckdb"
+
+
+def test_export_includes_llm_outlooks_when_present(warehouse, tmp_path):
+    from llm import summarize as s
+
+    con = duckdb.connect(warehouse)
+    con.execute(s.OUTLOOK_DDL)
+    con.execute(s.CITATIONS_DDL)
+    con.execute(
+        f"insert into {s.OUTLOOK_TABLE} (cbsa_code, week_start, outlook, key_themes) "
+        "values ('A', date '2026-11-16', 'neutral', ['supply', 'rates'])"
+    )
+    con.close()
+    target = str(tmp_path / "dashboard.duckdb")
+    out = dashboard_export.export(warehouse, target)
+    assert out["tables"]["news_outlook"] == 1
+    themes = _read(target, "select key_themes from news_outlook")
+    assert themes == [("supply · rates",)]  # text: Evidence can't load lists
