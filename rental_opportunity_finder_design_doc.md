@@ -287,13 +287,19 @@ CREATE TABLE gold.metro_news_outlook (
     key_themes          ARRAY<STRING>,
     risks               ARRAY<STRING>,
     cited_item_ids      ARRAY<STRING>,  -- FK → silver_news_items, for traceability
+    input_item_ids      ARRAY<STRING>,  -- every item the model was shown
     item_count          INT,
+    citation_coverage   FLOAT,       -- share of summary sentences with a valid citation
     gdelt_avg_tone      FLOAT,       -- quantitative cross-check
     model_id            STRING,      -- which LLM produced it
     prompt_version      STRING,
+    batch_id            STRING,
+    input_tokens        INT,         -- cost tracking (+ output_tokens, cache_read_tokens)
     generated_at        TIMESTAMP
 );
 ```
+
+`gold.metro_news_outlook_citations` holds one row per cited item (`ref_number` matches the `[1]`, `[2]` markers in `summary`, plus title, URL, outlet and date), so the dashboard can list sources without joining back to Silver. National rows use `cbsa_code = 'national'`.
 
 ---
 
@@ -370,7 +376,7 @@ v1.0 → v1.1 on the Sep 2026 snapshot: 44 of the top 50 kept, rank correlation 
 | `spark_gdelt_backfill` | Manual / monthly | Spark job filters GKG history → `silver_spark.gdelt_metro_tone` |
 | `dbt_build` | Triggered by upstream datasets | `dbt build --select state:modified+` (or by tag) |
 | `compute_scores` | After `dbt_build` (monthly) | `scoring/score.py` → Gold |
-| `llm_metro_outlook` | Weekly (Sun) | see §9.4 |
+| `llm_metro_outlook` | Weekly (Mon 10:00 UTC, last full Mon–Sun week) | see §9.4 |
 | `data_quality_report` | Daily | freshness checks, GE summary, alert on failure |
 
 Use **Airflow Datasets/Assets** (data-aware scheduling) so `dbt_build` runs when its upstream Bronze tables update, instead of fixed-time chaining.
@@ -445,14 +451,15 @@ Applied in `silver_news_items`, in priority order:
 
 ### 9.4 LLM Metro Outlook (weekly)
 
-- **Scope:** top ~20 metros by number of scored zips (configurable), plus a `national` summary.
+- **Scope:** top ~20 metros by number of scored zips (configurable), plus a `national` summary. A metro with fewer than 3 items in the week gets no row.
 - **Input per metro:** last 7 days of `silver_news_items` for that metro (titles, snippets, Reddit text, capped and ranked by engagement/recency), the metro's GDELT tone trend, and its latest Gold metrics (median rent growth, yield) as context.
 - **API usage:**
   - **Message Batches API** — asynchronous, 50% cheaper; fine for a weekly job.
   - **Structured outputs** — response conforms to a JSON schema matching `gold_metro_news_outlook`.
   - **Prompt caching** — a stable system prompt (instructions + output schema) shared across all metros.
-  - Model configured in `config/llm.yaml`; default `claude-opus-5-5`, swappable to a cheaper model after comparing output quality.
-- **Guardrails:** the prompt requires every claim to cite `cited_item_ids` from the input; a post-check drops any cited ID not present in the input. `stop_reason` is checked (e.g. `refusal`, `max_tokens`) and failed metros are retried or skipped, never written as empty rows.
+  - Model configured in `config/llm.yaml`; default `claude-haiku-5-5` (D17), with `claude-sonnet-5-5` as the fallback if the eval set shows Haiku falling short.
+  - Each metro's prompt is capped well under 100K tokens: Haiku 5.5 bills prompts above that at 5x the rate.
+- **Guardrails:** items are shown as `[n1]`, `[n2]`, …, and every summary sentence must end with the IDs it rests on. A post-check drops IDs not in the input and rejects an outlook where under 60% of sentences keep a valid citation (`config/llm.yaml`). `stop_reason` is checked (`refusal` → skipped; `max_tokens`, schema failures, weak citations, expired or server-errored batch requests → retried once as a direct request), and failed metros are never written as empty rows. News text is untrusted: the prompt tells the model to treat it as data only.
 - **Traceability:** `model_id`, `prompt_version` and the input item IDs are stored with each row. Prompts live in `llm/prompts/` under version control.
 - **Evaluation:** a small hand-labeled set (~20 metro-weeks) in `tests/llm_eval/` to compare prompt or model changes before switching.
 
@@ -644,8 +651,8 @@ Each phase ends with something that runs end-to-end. Timelines are rough; phases
 - [x] Producers: RSS + GDELT live (Reddit deferred until API access is approved; see D16)
 - [x] `jobs/stream_news_to_bronze.py` (Structured Streaming, checkpointed; availableNow every 15 min, D16)
 - [x] dbt `silver_news_items` with metro tagging
-- [ ] `llm/summarize.py` + `llm_metro_outlook` DAG (Batch API, structured outputs)
-- [ ] Dashboard page 5: **Market Pulse** (outlook per metro, themes, cited sources)
+- [x] `llm/summarize.py` + `llm_metro_outlook` DAG (Batch API, structured outputs)
+- [x] Dashboard page 5: **Market Pulse** (outlook per metro, themes, cited sources)
 - [ ] **Done when:** weekly outlooks populate automatically with valid citations
 
 ### Phase 7 — Lineage & Observability
@@ -673,12 +680,12 @@ Redfin, HUD FMR, score v2 (§7.5), tier-change alerts, dbt snapshots for score h
 | All data sources | $0 (free keys for FRED, Census, BLS, Reddit) |
 | Docker stack (Airflow, Spark, Kafka, SeaweedFS, observability) | $0 — runs on your machine |
 | GitHub + GitHub Actions (public repo) | $0 |
-| **LLM outlook (Claude Batch API)** | **~$1–6** — see below |
-| **Total** | **~$1–6 / month** |
+| **LLM outlook (Claude Batch API, Haiku 5.5)** | **<$1** — see below |
+| **Total** | **<$1 / month** |
 
 **LLM estimate** (assumes ~30k input tokens + ~1k output per metro, Batch API 50% discount, list prices as of Nov 2026 — verify on the pricing page):
 
-| Cadence / scope | Opus 5.5 (default) | Sonnet 5.5 | Haiku 5.5 |
+| Cadence / scope | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 (default) |
 |---|---|---|---|
 | Weekly, 20 metros | ~$6 | ~$3 | <$1 |
 | Daily, 50 metros | ~$100 | ~$50 | ~$3 |
@@ -743,6 +750,7 @@ New GCP accounts' free-trial credits would likely cover the first months. **Avoi
 | D14 | Hazard (FEMA NRI) and HMDA investor share are dashboard **context**, not score inputs | Hazard sub-score; investor sub-score (+ or −) | Measured before deciding (2026-11-20). Hazard: high-scoring zips don't skew risky (score vs. expected building-loss rate ρ = −0.21; 2% of the top 100 in the riskiest decile vs. 10% overall), so a sub-score would mostly nudge two Louisiana zips. Uses FEMA's expected *building* loss ÷ building value, not the composite RISK_SCORE, which folds in social vulnerability (income/demographics). Investor share: barely predicts next-year rent or value growth (ρ −0.15 to +0.12, sign flips by year), so no direction is supported. Both are shown on the Zip Deep-Dive and as Screener columns/filters. |
 | D15 | GDELT history via **BigQuery**, not Spark on downloaded files | Spark on the 15-minute GKG files; Spark on GCS/Dataproc | GKG history is 2.9 TB zipped (404,862 files; 168 GB for one year), beyond a laptop's disk and 2 Spark cores. GDELT is a free public BigQuery dataset, so the filter runs there and only ~5k US housing articles/week come back. Scans ~9 GB/month of news; the 2024→now backfill was ~345 GB, inside the sandbox's free 1 TB/month (the sandbox has no billing, so overruns fail rather than charge). Every query is dry-run against a budget first. Auth is keyless: ADC impersonating a BigQuery-Job-User-only service account (service-account keys are blocked by org policy, and §12.2 already says no keys). Locations map to zips (Census ZCTA polygons) and then to metros in dbt with HUD's current CBSA codes, because the Census CBSA polygons in BigQuery predate the 2023 delineation (16 scored metros' codes changed). Spark still does the genuinely heavy local job (HMDA). |
 | D16 | Stream job runs as Spark Structured Streaming with **trigger(availableNow) every 15 min** from Airflow, in **local mode** | An always-on streaming query; a Spark cluster | News is a few hundred events an hour and is read weekly, so second-level latency buys nothing, while an always-on query holds ~1.5–2 GB of an ~8 GB Docker VM. availableNow keeps the streaming semantics (Kafka offsets in the checkpoint, insert-only MERGE on (source, source_id), so replays are no-ops) but exits once caught up; local[2] inside the Airflow task needs no Spark cluster. The Bronze event is lineage only, not a dbt trigger: dbt_build adds a daily 06:30 UTC run that builds just the news models (rebuilding every 15 minutes would hold the warehouse lock and rescore constantly). Sources: Google News RSS disallows all crawlers in robots.txt, so metro-level news comes from **live GDELT** (city + state per article); RSS feeds that allow readers (HousingWire, Redfin, Realtor.com, CNBC Real Estate, Multifamily Dive) add national/industry context. Reddit is deferred until API access is approved (new apps need review); the schema and topics already allow it. Metro tagging uses a generated alias seed (`scripts/make_metro_aliases.py`), with bare city names allowed only where unambiguous. |
+| D17 | Weekly outlooks on **Claude Haiku 5.5** (`claude-haiku-5-5`), Batch API | Opus 5.5 (earlier default); Sonnet 5.5 | The task is summarizing ≤ ~30k tokens of already-tagged news per metro into a fixed JSON schema, which is Haiku's kind of work, and the guardrails (structured outputs, cited-ID post-check, `stop_reason` checks) catch the failure modes that matter. At $0.10 / $0.50 per MTok (prompts ≤ 100K tokens; batch halves it) weekly × 20 metros is about $0.20/month vs ~$6 on Opus. Haiku 5.5's tokenizer counts ~30% more tokens than older models, already within that estimate. Haiku 5.5 rejects sampling parameters and assistant prefill, so output shape comes from structured outputs only. If the `tests/llm_eval/` set shows weak or uncited summaries, switch `config/llm.yaml` to Sonnet 5.5 (~$3/month); no code change. |
 
 ---
 

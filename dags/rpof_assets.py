@@ -69,3 +69,9 @@ DBT_TRIGGERS = [
 
 # Triggers when any one of them updates.
 ANY_BRONZE_UPDATE = reduce(or_, DBT_TRIGGERS)
+
+# Written weekly by llm_metro_outlook (gold.metro_news_outlook + citations).
+GOLD_NEWS_OUTLOOK = Asset(
+    name="gold.metro_news_outlook",
+    uri="duckdb://rpof/gold/metro_news_outlook",
+)

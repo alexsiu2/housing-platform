@@ -84,6 +84,7 @@ x-airflow-common: &airflow-common
     - ../serving:/opt/airflow/project/serving
     - ../config:/opt/airflow/project/config
     - ../jobs:/opt/airflow/project/jobs
+    - ../llm:/opt/airflow/project/llm
     # Keyless GCP auth for GDELT (BigQuery): only the ADC file, read-only. It
     # impersonates the least-privilege reader service account; see README.
     - ${GCP_ADC_FILE:-${HOME}/.config/gcloud/application_default_credentials.json}:/opt/airflow/gcp/adc.json:ro

@@ -12,3 +12,5 @@ duckdb==2.0.0
 pyyaml==6.0.3
 # GDELT via BigQuery (ingestion/gdelt_client.py)
 google-cloud-bigquery==3.47.0
+# Weekly LLM metro outlook (llm/summarize.py)
+anthropic==2.13.0

@@ -89,7 +89,7 @@ jobs:
           for path, err in bag.import_errors.items():
               print(f'{path}: {err}')
           print('DAGs:', sorted(bag.dag_ids))
-          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report', 'spark_hmda', 'ingest_fema_nri', 'ingest_gdelt_news', 'stream_news_to_bronze'}
+          expected = {'platform_smoke_test', 'ingest_fred', 'dbt_build', 'ingest_zillow', 'ingest_hud_crosswalk', 'ingest_bls_ces', 'ingest_census_acs', 'compute_scores', 'data_quality_report', 'spark_hmda', 'ingest_fema_nri', 'ingest_gdelt_news', 'stream_news_to_bronze', 'llm_metro_outlook'}
           sys.exit(1 if bag.import_errors or not expected <= set(bag.dag_ids) else 0)
           "
 
